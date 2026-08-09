@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Eco-Cost Calculator — a Life Cycle Assessment tool</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <h1>🌱 Eco-Cost Calculator</h1>
+  <p class="subtitle">Build a product from materials, processing, transport and end-of-life, and get a real Life Cycle Assessment eco-cost breakdown &mdash; the same method taught in the INNOMAT LCA training module.</p>
+</header>
+
+<main>
+
+  <section class="card" id="builder-card">
+    <h2>1. Build your product</h2>
+    <p class="hint">Add each part with its material and weight. Optionally add processing and end-of-life treatment per part, plus assembly energy and transport for the whole product.</p>
+
+    <div class="preset-row">
+      <span class="hint" style="margin:0;">Try a worked example from the deck:</span>
+      <button type="button" class="btn-ghost" onclick="loadPreset('feltTipPen')">Felt-tip pen</button>
+      <button type="button" class="btn-ghost" onclick="loadPreset('pencilBodyBase')">Pencil body — base case</button>
+      <button type="button" class="btn-ghost" onclick="loadPreset('pencilBodyCase1')">Pencil body — case 1</button>
+      <button type="button" class="btn-ghost" onclick="loadPreset('pencilBodyCase2')">Pencil body — case 2</button>
+      <button type="button" class="btn-ghost" onclick="clearProduct()">Clear all</button>
+    </div>
+
+    <h3>Parts</h3>
+    <div id="parts-list" class="line-items"></div>
+    <form id="part-form" class="add-form" onsubmit="return false;">
+      <input type="text" id="part-name" placeholder="Part name (e.g. Body)" required>
+      <select id="part-category" onchange="renderMaterialOptions()"></select>
+      <select id="part-material"></select>
+      <input type="number" id="part-weight" placeholder="Weight (kg)" min="0" step="any" required>
+      <select id="part-process"></select>
+      <select id="part-eol"></select>
+      <button type="button" class="btn-primary" onclick="addPart()">Add part →</button>
+    </form>
+
+    <h3>Assembly energy <span class="hint-inline">(applied once, across the whole product's weight)</span></h3>
+    <div id="assembly-line" class="line-items"></div>
+    <form class="add-form" onsubmit="return false;">
+      <select id="assembly-energy"></select>
+      <input type="number" id="assembly-mj-per-kg" placeholder="MJ per kg of product" min="0" step="any">
+      <button type="button" class="btn-primary" onclick="setAssembly()">Set assembly energy →</button>
+    </form>
+
+    <h3>Transport</h3>
+    <div id="transport-list" class="line-items"></div>
+    <form id="transport-form" class="add-form" onsubmit="return false;">
+      <select id="transport-mode"></select>
+      <input type="number" id="transport-distance" placeholder="Distance (km)" min="0" step="any">
+      <span class="hint-inline" id="transport-tkm-preview"></span>
+      <button type="button" class="btn-primary" onclick="addTransport()">Add transport leg →</button>
+    </form>
+
+    <h3>Custom line item <span class="hint-inline">(any known eco-cost not covered above, in euro)</span></h3>
+    <div id="custom-list" class="line-items"></div>
+    <form class="add-form" onsubmit="return false;">
+      <input type="text" id="custom-name" placeholder="Description (e.g. Packaging)">
+      <input type="number" id="custom-value" placeholder="Eco-cost (euro)" step="any">
+      <button type="button" class="btn-primary" onclick="addCustomLine()">Add custom line →</button>
+    </form>
+  </section>
+
+  <section class="card" id="results-card">
+    <h2>2. Results</h2>
+    <div id="preset-check" class="preset-check" style="display:none;"></div>
+    <div id="results-empty" class="hint">Add at least one part to see the eco-cost breakdown.</div>
+    <div id="results-body" style="display:none;">
+      <table class="results-table">
+        <thead><tr><th>Line item</th><th>Detail</th><th>Eco-cost (€)</th></tr></thead>
+        <tbody id="results-tbody"></tbody>
+        <tfoot><tr><th colspan="2">Total eco-cost</th><th id="results-total"></th></tr></tfoot>
+      </table>
+      <h3>Hotspot chart <span class="hint-inline">(largest contributors to the total)</span></h3>
+      <div id="hotspot-chart" class="chart"></div>
+    </div>
+  </section>
+
+  <section class="card" id="scenarios-card">
+    <h2>3. Save &amp; compare scenarios</h2>
+    <p class="hint">Save the current product as a named scenario (e.g. "Base case", "Recycled aluminium body"), then compare totals side by side &mdash; the same base case / case 1 / case 2 comparison the deck walks through for product improvement.</p>
+    <form class="add-form" onsubmit="return false;">
+      <input type="text" id="scenario-name" placeholder="Scenario name">
+      <button type="button" class="btn-primary" onclick="saveScenario()">Save current product as scenario →</button>
+    </form>
+    <div id="scenarios-empty" class="hint">No scenarios saved yet.</div>
+    <table class="results-table" id="scenarios-table" style="display:none;">
+      <thead><tr><th>Scenario</th><th>Total eco-cost (€)</th><th></th></tr></thead>
+      <tbody id="scenarios-tbody"></tbody>
+    </table>
+    <div id="scenarios-chart" class="chart"></div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <p><strong>About this data:</strong> eco-cost figures are sample values transcribed from the INNOMAT / EIT RawMaterials Academy "Module 1: Life Cycle Assessment" training deck (Idematapp 2020 database excerpts). This is a small illustrative dataset, not the full licensed Idematapp / ecocostsvalue.com database &mdash; use the "Custom line item" field for anything not listed. Method: single-indicator eco-costs (euro), the prevention-cost approach the deck itself uses throughout its worked examples.</p>
+</footer>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
