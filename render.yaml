@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: eco-cost-calculator
+    runtime: static
+    staticPublishPath: .
+    buildCommand: ""
+    pullRequestPreviewsEnabled: false
