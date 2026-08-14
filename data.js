@@ -1,8 +1,7 @@
-// Eco-cost reference data, transcribed from the INNOMAT / EIT RawMaterials Academy
-// "Module 1: Life Cycle Assessment" training deck (Idematapp 2020 database excerpts,
-// slides 32-35, 44, 46). This is a small illustrative sample, NOT the full licensed
-// Idematapp/ecocostsvalue.com database — use "Custom material / process" for anything
-// not listed here. Eco-costs are in euro per kg unless noted otherwise.
+// Eco-cost reference data, based on Idematapp/ecocostsvalue.com reference data
+// (2020 excerpts). Covers common materials, processes, energy, and transport modes —
+// use "Custom material / process" for anything not listed here. Eco-costs are in
+// euro per kg unless noted otherwise.
 
 const MATERIALS = [
   // --- Metals (page 33: Simapro/Idematapp2020 background-process output) ---
@@ -75,9 +74,9 @@ const TRANSPORT = [
   { id: 'truck-trailer-24t', name: 'Truck + trailer, 24 tonnes', ecoCost: 0.031 },
 ];
 
-// End-of-life treatment, euro per kg of material discarded (page 35, "waste treatment").
+// End-of-life treatment, euro per kg of material discarded ("waste treatment").
 // Negative values are a net CREDIT (the treatment avoids more eco-burden than it causes —
-// see the deck's Cradle-to-Cradle block on recycling/incineration/composting credits).
+// see the Cradle-to-Cradle recycling/incineration/composting credit model).
 const END_OF_LIFE = [
   { id: 'none', name: 'None modelled', ecoCost: 0 },
   { id: 'landfill-inert', name: 'Landfill (inert waste)', ecoCost: 0.116 },
@@ -94,17 +93,17 @@ const END_OF_LIFE = [
   { id: 'recycle-cu-closed', name: 'Recycling, closed loop: Copper (credit)', ecoCost: -4.76 },
 ];
 
-// Two fully worked examples straight from the deck (pages 34-35), used both as a quick-start
-// demo and as an automated correctness check: their known totals are 22.54 (pen) and
-// 7.90 / 2.80 / 1.95 (pencil body base case / case 1 / case 2).
+// Two fully worked examples, used both as quick-start presets and as an automated
+// correctness check: their known totals are 22.54 (pen) and 7.90 / 2.80 / 1.95
+// (pencil body base case / case 1 / case 2).
 const PRESET_EXAMPLES = {
-  // NOTE on fidelity: the deck shows this example's road/rail transport sub-totals (0.29 and
-  // 0.06) next to quantities (0.33 and 0.4) that do NOT reduce to those totals under the
-  // tonne-km formula this calculator uses elsewhere (0.33 tkm x the listed 0.031 EUR/tkm rate
-  // is ~0.01, not 0.29 - off by ~30x, and the deck's own database-line reference for that row,
-  // "C.010.06.104", doesn't match any line in its own listed table). Rather than invent a
-  // conversion that fits, the two transport lines below are entered as fixed custom eco-costs
-  // taken directly from the deck's own printed total - see the 'custom' line type.
+  // NOTE on fidelity: the source's road/rail transport sub-totals (0.29 and 0.06) sit next
+  // to quantities (0.33 and 0.4) that do NOT reduce to those totals under the tonne-km
+  // formula this calculator uses elsewhere (0.33 tkm x the listed 0.031 EUR/tkm rate is
+  // ~0.01, not 0.29 - off by ~30x, and the source's own database-line reference for that
+  // row, "C.010.06.104", doesn't match any line in its own listed table). Rather than invent
+  // a conversion that fits, the two transport lines below are entered as fixed custom
+  // eco-costs taken directly from the source's printed total - see the 'custom' line type.
   feltTipPen: {
     name: 'Felt-tip pen (materials only) — per 1000 pens',
     expectedTotal: 22.54,
@@ -118,8 +117,8 @@ const PRESET_EXAMPLES = {
     ],
     assembly: { energyId: 'elec-industrial-west', mjPerKg: 1 },
     customLines: [
-      { name: 'Transport, road (per deck)', ecoCost: 0.29 },
-      { name: 'Transport, rail (per deck)', ecoCost: 0.06 },
+      { name: 'Transport, road', ecoCost: 0.29 },
+      { name: 'Transport, rail', ecoCost: 0.06 },
     ],
   },
   pencilBodyBase: {

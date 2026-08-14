@@ -284,8 +284,8 @@ function renderPresetCheck(total) {
   const withinTolerance = diff <= 0.10;
   el.style.display = '';
   el.className = 'preset-check ' + (withinTolerance ? 'preset-check-ok' : 'preset-check-fail');
-  el.innerHTML = `${withinTolerance ? '✓' : '⚠'} Deck's own worked total for "${preset.name}": €${fmt(preset.expectedTotal)}.
-    This calculator computed €${fmt(total)} (difference €${fmt(diff)}, from the deck showing each line pre-rounded to 2 decimals).`;
+  el.innerHTML = `${withinTolerance ? '✓' : '⚠'} Reference total for "${preset.name}": €${fmt(preset.expectedTotal)}.
+    This calculator computed €${fmt(total)} (difference €${fmt(diff)}, from source figures pre-rounded to 2 decimals).`;
 }
 
 function renderAll() {
