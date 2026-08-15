@@ -9,6 +9,19 @@
   --line: #dbe4dd;
   --card-bg: #ffffff;
   --page-bg: #f4f8f5;
+
+  /* Tab identity colors — categorical, fixed order, validated for CVD-safe adjacency
+     (dataviz skill palette slots 1-4 + 5; Home keeps the site's own green as its
+     brand color rather than joining this set). Always paired with a text label —
+     never the sole carrier of meaning. */
+  --tab-home: var(--green);
+  --tab-carbon: #2a78d6;
+  --tab-water: #eb6834;
+  --tab-energy: #1baf7a;
+  --tab-recycled: #eda100;
+  --tab-recycled-pale: #fbedcf;
+  --tab-sensitivity: #e87ba4;
+  --shadow-card: 0 1px 2px rgba(11, 11, 11, 0.04), 0 4px 14px rgba(11, 11, 11, 0.05);
 }
 
 * { box-sizing: border-box; }
@@ -43,13 +56,31 @@ body {
   color: var(--ink-soft);
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 8px 16px;
+  padding: 8px 16px 8px 12px;
   font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
-.tab-btn:hover { background: var(--green-pale); color: var(--green-dark); }
-.tab-btn.active { background: var(--green); color: #fff; border-color: var(--green); }
+.tab-btn:hover { background: var(--page-bg); border-color: var(--tab-dot, var(--line)); }
+.tab-btn.active { background: var(--tab-dot, var(--green)); color: #fff; border-color: var(--tab-dot, var(--green)); }
+.tab-btn.active .tab-dot { background: #fff; }
+.tab-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--tab-dot, var(--ink-soft));
+  flex-shrink: 0;
+}
+#tabbtn-home { --tab-dot: var(--tab-home); }
+#tabbtn-carbon { --tab-dot: var(--tab-carbon); }
+#tabbtn-water { --tab-dot: var(--tab-water); }
+#tabbtn-energy { --tab-dot: var(--tab-energy); }
+#tabbtn-recycled { --tab-dot: var(--tab-recycled); }
+#tabbtn-sensitivity { --tab-dot: var(--tab-sensitivity); }
 
 main {
   max-width: 900px;
@@ -64,6 +95,14 @@ main {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  animation: fade-in 0.22s ease;
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-panel { animation: none; }
 }
 
 .stat-grid {
@@ -74,6 +113,7 @@ main {
 .stat {
   background: var(--page-bg);
   border: 1px solid var(--line);
+  border-top: 3px solid var(--stat-accent, var(--line));
   border-radius: 10px;
   padding: 12px 14px;
   display: flex;
@@ -81,16 +121,36 @@ main {
   gap: 4px;
 }
 .stat-label { font-size: 11.5px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.03em; }
-.stat-value { font-size: 19px; font-weight: 700; color: var(--green-dark); font-variant-numeric: tabular-nums; }
+.stat-value { font-size: 19px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+#stat-card-ecoCost { --stat-accent: var(--tab-home); }
+#stat-card-co2e { --stat-accent: var(--tab-carbon); }
+#stat-card-water { --stat-accent: var(--tab-water); }
+#stat-card-energyIn { --stat-accent: var(--tab-energy); }
+#stat-card-recycled { --stat-accent: var(--tab-recycled); }
 
 .card {
   background: var(--card-bg);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 24px;
+  box-shadow: var(--shadow-card);
 }
-.card h2 { margin-top: 0; font-size: 19px; }
+.card h2 { margin-top: 0; font-size: 19px; display: flex; align-items: center; gap: 9px; }
+.card h2::before {
+  content: '';
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--card-accent, transparent);
+  flex-shrink: 0;
+}
 .card h3 { font-size: 15px; margin: 20px 0 8px; color: var(--ink); }
+#builder-card h2::before, #results-card h2::before, #scenarios-card h2::before, #overview-card h2::before { background: var(--tab-home); }
+#tab-carbon .card h2::before { background: var(--tab-carbon); }
+#tab-water .card h2::before { background: var(--tab-water); }
+#tab-energy .card h2::before { background: var(--tab-energy); }
+#tab-recycled .card h2::before { background: var(--tab-recycled); }
+#tab-sensitivity .card h2::before { background: var(--tab-sensitivity); }
 
 .hint { color: var(--ink-soft); font-size: 13.5px; margin: 4px 0 12px; }
 .hint-inline { color: var(--ink-soft); font-size: 12.5px; font-weight: normal; }
@@ -196,13 +256,79 @@ main {
 }
 
 .chart { margin-top: 12px; }
-.chart-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.chart-legend { display: flex; gap: 16px; margin-bottom: 10px; font-size: 12px; color: var(--ink-soft); }
+.chart-legend-item { display: flex; align-items: center; gap: 6px; }
+.chart-legend-swatch { width: 10px; height: 10px; border-radius: 3px; }
+.chart-legend-swatch.burden { background: var(--red); }
+.chart-legend-swatch.credit { background: var(--green); }
+.chart-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 3px 4px;
+  border-radius: 6px;
+  transition: background 0.12s ease;
+}
+.chart-row:hover { background: var(--page-bg); }
 .chart-label { width: 160px; flex-shrink: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chart-track { flex: 1; background: var(--page-bg); border-radius: 6px; height: 18px; overflow: hidden; }
 .chart-bar { height: 100%; border-radius: 6px; }
 .bar-burden { background: linear-gradient(90deg, #e8a15c, var(--red)); }
 .bar-credit { background: linear-gradient(90deg, #6fc98c, var(--green)); }
 .chart-value { width: 90px; flex-shrink: 0; text-align: right; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+/* --- Meters: single ratio against a limit (recycled %), same-ramp track+fill --- */
+.radial-meter {
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  background: conic-gradient(var(--tab-recycled) calc(var(--meter-pct, 0) * 1%), var(--tab-recycled-pale) 0);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.radial-meter-inner {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+.radial-meter-value { font-size: 20px; font-weight: 700; color: var(--ink); }
+.radial-meter-caption { font-size: 10.5px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.02em; }
+.meter-row { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin: 8px 0 4px; }
+.meter-hints { flex: 1; min-width: 220px; font-size: 12.5px; color: var(--ink-soft); }
+.meter-hints strong { color: var(--ink); }
+.meter-hints ul { margin: 6px 0 0; padding-left: 18px; }
+.meter-hints li { margin-bottom: 3px; }
+
+/* --- Range meter: your value vs. best/worst case using available reference data --- */
+.range-meter-wrap { margin: 14px 0 4px; }
+.range-meter-labels { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-soft); margin-bottom: 6px; }
+.range-meter-labels .best { color: var(--green-dark); font-weight: 600; }
+.range-meter-labels .worst { color: var(--red); font-weight: 600; }
+.range-meter {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--green) 0%, #e3c25c 50%, var(--red) 100%);
+}
+.range-meter-marker {
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  border: 3px solid var(--ink);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 3px rgba(11, 11, 11, 0.25);
+}
+.range-meter-your { text-align: center; font-size: 12px; color: var(--ink-soft); margin-top: 8px; }
+.range-meter-your strong { color: var(--ink); }
 
 .preset-check {
   border-radius: 8px;
@@ -221,7 +347,31 @@ main {
   font-size: 12.5px;
 }
 
+.export-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line); }
+.btn-secondary {
+  background: var(--card-bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.btn-secondary:hover { background: var(--page-bg); border-color: var(--ink-soft); }
+
 @media (max-width: 560px) {
   .line-item-label { min-width: 0; }
   .chart-label { width: 90px; }
+}
+
+/* --- Print / "Save as PDF" report: hide chrome, show a clean data report --- */
+@media print {
+  .tabs, .preset-row, .add-form, .btn-remove, .export-row, .site-footer, #part-form { display: none !important; }
+  .tab-panel { display: block !important; animation: none !important; }
+  .card { box-shadow: none; border: 1px solid #999; break-inside: avoid; }
+  body { background: #fff; }
+  .site-header { background: none !important; color: #000 !important; padding: 0 0 12px; }
 }

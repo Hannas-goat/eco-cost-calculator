@@ -376,6 +376,40 @@ function energyUsageTotals() {
   };
 }
 
+// Best/worst case: same total kWh, but every entry using the cleanest (or dirtiest)
+// available ENERGY source for that metric — grounded in the app's own reference
+// data, not an external benchmark.
+function energyUsageRange(metricKey) {
+  const totalKwh = energyUsageEntries.reduce((s, e) => s + e.kwh, 0);
+  const factors = ENERGY.map(e => e[metricKey]);
+  const bestSource = ENERGY.find(e => e[metricKey] === Math.min(...factors));
+  const worstSource = ENERGY.find(e => e[metricKey] === Math.max(...factors));
+  return {
+    best: totalKwh * bestSource[metricKey],
+    worst: totalKwh * worstSource[metricKey],
+    bestSource,
+    worstSource,
+  };
+}
+
+const RANGE_IDS = {
+  co2e: { bestLabel: 'carbon-range-best-label', worstLabel: 'carbon-range-worst-label', marker: 'carbon-range-marker', your: 'carbon-range-your' },
+  water: { bestLabel: 'water-range-best-label', worstLabel: 'water-range-worst-label', marker: 'water-range-marker', your: 'water-range-your' },
+  energyIn: { bestLabel: 'energy-range-best-label', worstLabel: 'energy-range-worst-label', marker: 'energy-range-marker', your: 'energy-range-your' },
+};
+
+function renderRangeMeter(metricKey, total) {
+  const ids = RANGE_IDS[metricKey];
+  const range = energyUsageRange(metricKey);
+  const marker = document.getElementById(ids.marker);
+  document.getElementById(ids.bestLabel).textContent = `Best case: ${fmtMetric(range.best, metricKey)} (${range.bestSource.name})`;
+  document.getElementById(ids.worstLabel).textContent = `Worst case: ${fmtMetric(range.worst, metricKey)} (${range.worstSource.name})`;
+  document.getElementById(ids.your).textContent = fmtMetric(total, metricKey);
+  const span = range.worst - range.best;
+  const pct = span > 0 ? Math.min(100, Math.max(0, ((total - range.best) / span) * 100)) : 0;
+  marker.style.left = `${pct}%`;
+}
+
 // --- Recycled content: standalone calculator ---
 function addRecycledEntry() {
   const materialId = document.getElementById('recycled-material').value;
@@ -430,6 +464,29 @@ function renderRecycledTab() {
 
   const pct = computeRecycledPct();
   document.getElementById('recycled-total').textContent = `${fmt(pct, 1)}%`;
+  document.getElementById('recycled-meter').style.setProperty('--meter-pct', pct.toFixed(1));
+
+  // Group by base material name (e.g. "Aluminium" from "Aluminium (primary)" /
+  // "Aluminium trade mix (...)") rather than the broader category — category alone
+  // would wrongly suggest e.g. Copper as an "alternative" to Aluminium.
+  const materialBaseName = (name) => name.split(' ')[0];
+  const seenBaseNames = new Set();
+  const hints = [];
+  for (const r of recycledEntries) {
+    const material = findById(MATERIALS, r.materialId);
+    const baseName = materialBaseName(material.name);
+    if (seenBaseNames.has(baseName)) continue;
+    seenBaseNames.add(baseName);
+    const alternatives = MATERIALS
+      .filter(m => materialBaseName(m.name) === baseName && m.recycledPct > material.recycledPct)
+      .sort((a, b) => b.recycledPct - a.recycledPct);
+    if (alternatives.length) {
+      hints.push(`<li><strong>${material.name}</strong> (${material.recycledPct}%) → ${alternatives.map(a => `${a.name} (${a.recycledPct}%)`).join(', ')}</li>`);
+    }
+  }
+  document.getElementById('recycled-hints').innerHTML = hints.length
+    ? `<strong>Higher-recycled alternatives available in your reference data:</strong><ul>${hints.join('')}</ul>`
+    : '<strong>No higher-recycled alternative found</strong> in the reference data for the materials you\'ve added.';
 
   document.getElementById('recycled-chart').innerHTML = recycledEntries.map(r => {
     const material = findById(MATERIALS, r.materialId);
@@ -463,6 +520,70 @@ function runSensitivity() {
   </tr>`;
 }
 
+// --- CSV export (client-side, no dependencies) ---
+function csvCell(value) {
+  const s = String(value);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function csvFromRows(header, rows) {
+  return [header, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n');
+}
+
+function downloadCsv(filename, csv) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${filename}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+const CSV_EXPORTERS = {
+  eco: () => {
+    const items = computeLineItems();
+    const total = items.reduce((s, i) => s + i.ecoCost, 0);
+    const rows = items.map(i => [i.label, i.detail, i.ecoCost.toFixed(2)]);
+    rows.push(['Total', '', total.toFixed(2)]);
+    return csvFromRows(['Line item', 'Detail', 'Eco-cost (EUR)'], rows);
+  },
+  carbon: () => {
+    const items = energyUsageItems();
+    const rows = items.map(i => [i.label, i.detail, i.co2e.toFixed(2)]);
+    rows.push(['Total', '', items.reduce((s, i) => s + i.co2e, 0).toFixed(2)]);
+    return csvFromRows(['Energy source', 'Detail', 'kg CO2e'], rows);
+  },
+  water: () => {
+    const items = energyUsageItems();
+    const rows = items.map(i => [i.label, i.detail, i.water.toFixed(1)]);
+    rows.push(['Total', '', items.reduce((s, i) => s + i.water, 0).toFixed(1)]);
+    return csvFromRows(['Energy source', 'Detail', 'Water (L)'], rows);
+  },
+  energy: () => {
+    const items = energyUsageItems();
+    const rows = items.map(i => [i.label, i.detail, i.energyIn.toFixed(2)]);
+    rows.push(['Total', '', items.reduce((s, i) => s + i.energyIn, 0).toFixed(2)]);
+    return csvFromRows(['Energy source', 'Detail', 'Energy (kWh)'], rows);
+  },
+  recycled: () => {
+    const rows = recycledEntries.map(r => {
+      const material = findById(MATERIALS, r.materialId);
+      return [material.name, material.category, r.weight.toFixed(2), material.recycledPct];
+    });
+    rows.push(['Weighted total', '', '', computeRecycledPct().toFixed(1)]);
+    return csvFromRows(['Material', 'Category', 'Weight (kg)', 'Recycled %'], rows);
+  },
+};
+
+function exportCsv(tabKey, filename) {
+  const build = CSV_EXPORTERS[tabKey];
+  if (!build) return;
+  downloadCsv(filename, build());
+}
+
 // --- Home: overview dashboard (previews every tab) ---
 function renderOverview(ecoItems) {
   const ecoTotal = ecoItems.reduce((sum, i) => sum + i.ecoCost, 0);
@@ -487,9 +608,12 @@ function renderAll() {
 
   renderEnergyUsageLists();
   const enItems = energyUsageItems();
-  renderBreakdown(enItems, 'co2e', CARBON_IDS);
-  renderBreakdown(enItems, 'water', WATER_IDS);
-  renderBreakdown(enItems, 'energyIn', ENERGY_IDS);
+  const co2eTotal = renderBreakdown(enItems, 'co2e', CARBON_IDS);
+  const waterTotal = renderBreakdown(enItems, 'water', WATER_IDS);
+  const energyInTotal = renderBreakdown(enItems, 'energyIn', ENERGY_IDS);
+  if (co2eTotal !== null) renderRangeMeter('co2e', co2eTotal);
+  if (waterTotal !== null) renderRangeMeter('water', waterTotal);
+  if (energyInTotal !== null) renderRangeMeter('energyIn', energyInTotal);
 
   renderRecycledTab();
   renderOverview(ecoItems);

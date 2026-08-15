@@ -34,6 +34,23 @@ measured per kWh of the same energy use. Recycled content and Sensitivity
 analysis each keep entirely separate state. None of the five standalone tabs
 read from the Home product builder, or from each other.
 
+## Extra analysis & export
+
+- **Best case / worst case.** Carbon footprint, Water consumption, and Energy
+  used in production each show a range meter comparing your total against what
+  it would be if every entry had used the cleanest (or dirtiest) energy source
+  already in the reference data — grounded in the app's own data, not an
+  external benchmark.
+- **Higher-recycled alternatives.** The Recycled content tab flags any material
+  you've added that has a higher-recycled variant elsewhere in the reference
+  data (e.g. Aluminium (primary) → Aluminium (secondary), 100%).
+- **CSV export.** Every breakdown table (Home eco-cost, Carbon, Water, Energy,
+  Recycled) has an "Export CSV" button.
+- **Print / save as PDF.** The button on the Home overview card opens the
+  browser print dialog with a dedicated report layout (all tabs' data shown at
+  once, forms and buttons hidden) — use "Save as PDF" there for a shareable
+  report. No server or library involved; it's the browser's native print-to-PDF.
+
 ## Running it
 
 No build step, no server-side logic — it's a static site.

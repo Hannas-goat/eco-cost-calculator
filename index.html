@@ -14,12 +14,12 @@
 </header>
 
 <nav class="tabs">
-  <button type="button" id="tabbtn-home" class="tab-btn active" onclick="showTab('home')">Home</button>
-  <button type="button" id="tabbtn-carbon" class="tab-btn" onclick="showTab('carbon')">Carbon footprint</button>
-  <button type="button" id="tabbtn-water" class="tab-btn" onclick="showTab('water')">Water consumption</button>
-  <button type="button" id="tabbtn-energy" class="tab-btn" onclick="showTab('energy')">Energy in production</button>
-  <button type="button" id="tabbtn-recycled" class="tab-btn" onclick="showTab('recycled')">Recycled content</button>
-  <button type="button" id="tabbtn-sensitivity" class="tab-btn" onclick="showTab('sensitivity')">Sensitivity analysis</button>
+  <button type="button" id="tabbtn-home" class="tab-btn active" onclick="showTab('home')"><span class="tab-dot"></span>Home</button>
+  <button type="button" id="tabbtn-carbon" class="tab-btn" onclick="showTab('carbon')"><span class="tab-dot"></span>Carbon footprint</button>
+  <button type="button" id="tabbtn-water" class="tab-btn" onclick="showTab('water')"><span class="tab-dot"></span>Water consumption</button>
+  <button type="button" id="tabbtn-energy" class="tab-btn" onclick="showTab('energy')"><span class="tab-dot"></span>Energy in production</button>
+  <button type="button" id="tabbtn-recycled" class="tab-btn" onclick="showTab('recycled')"><span class="tab-dot"></span>Recycled content</button>
+  <button type="button" id="tabbtn-sensitivity" class="tab-btn" onclick="showTab('sensitivity')"><span class="tab-dot"></span>Sensitivity analysis</button>
 </nav>
 
 <main>
@@ -31,11 +31,14 @@
       <h2>Overview — all impact indicators</h2>
       <p class="hint">A live preview of every tab on this site: eco-cost comes from the product you build below; the rest come from each tab's own calculator — visit a tab to add to it.</p>
       <div class="stat-grid">
-        <div class="stat"><span class="stat-label">Eco-cost</span><span class="stat-value" id="stat-ecoCost">€0.00</span></div>
-        <div class="stat"><span class="stat-label">Carbon footprint</span><span class="stat-value" id="stat-co2e">0.00 kg CO2e</span></div>
-        <div class="stat"><span class="stat-label">Water consumption</span><span class="stat-value" id="stat-water">0.0 L</span></div>
-        <div class="stat"><span class="stat-label">Energy used in production</span><span class="stat-value" id="stat-energyIn">0.00 kWh</span></div>
-        <div class="stat"><span class="stat-label">Recycled content</span><span class="stat-value" id="stat-recycled">0%</span></div>
+        <div class="stat" id="stat-card-ecoCost"><span class="stat-label">Eco-cost</span><span class="stat-value" id="stat-ecoCost">€0.00</span></div>
+        <div class="stat" id="stat-card-co2e"><span class="stat-label">Carbon footprint</span><span class="stat-value" id="stat-co2e">0.00 kg CO2e</span></div>
+        <div class="stat" id="stat-card-water"><span class="stat-label">Water consumption</span><span class="stat-value" id="stat-water">0.0 L</span></div>
+        <div class="stat" id="stat-card-energyIn"><span class="stat-label">Energy used in production</span><span class="stat-value" id="stat-energyIn">0.00 kWh</span></div>
+        <div class="stat" id="stat-card-recycled"><span class="stat-label">Recycled content</span><span class="stat-value" id="stat-recycled">0%</span></div>
+      </div>
+      <div class="export-row">
+        <button type="button" class="btn-secondary" onclick="window.print()">🖨️ Print / save full report as PDF</button>
       </div>
     </section>
 
@@ -101,7 +104,14 @@
           <tfoot><tr><th colspan="2">Total eco-cost</th><th id="results-total"></th></tr></tfoot>
         </table>
         <h3>Hotspot chart <span class="hint-inline">(largest contributors to the total)</span></h3>
+        <div class="chart-legend">
+          <span class="chart-legend-item"><span class="chart-legend-swatch burden"></span>Burden (adds eco-cost)</span>
+          <span class="chart-legend-item"><span class="chart-legend-swatch credit"></span>Credit (reduces eco-cost)</span>
+        </div>
         <div id="hotspot-chart" class="chart"></div>
+        <div class="export-row">
+          <button type="button" class="btn-secondary" onclick="exportCsv('eco', 'eco-cost-breakdown')">⬇ Export CSV</button>
+        </div>
       </div>
     </section>
 
@@ -140,8 +150,19 @@
           <tbody id="carbon-tbody"></tbody>
           <tfoot><tr><th colspan="2">Total carbon footprint</th><th id="carbon-total"></th></tr></tfoot>
         </table>
+
+        <h3>Best case / worst case <span class="hint-inline">(same kWh, using the cleanest vs. dirtiest available energy source)</span></h3>
+        <div class="range-meter-wrap">
+          <div class="range-meter-labels"><span class="best" id="carbon-range-best-label"></span><span class="worst" id="carbon-range-worst-label"></span></div>
+          <div class="range-meter"><div class="range-meter-marker" id="carbon-range-marker"></div></div>
+          <div class="range-meter-your">Your total: <strong id="carbon-range-your"></strong></div>
+        </div>
+
         <h3>Hotspot chart</h3>
         <div id="carbon-chart" class="chart"></div>
+        <div class="export-row">
+          <button type="button" class="btn-secondary" onclick="exportCsv('carbon', 'carbon-footprint')">⬇ Export CSV</button>
+        </div>
       </div>
     </section>
   </section>
@@ -164,8 +185,19 @@
           <tbody id="water-tbody"></tbody>
           <tfoot><tr><th colspan="2">Total water consumption</th><th id="water-total"></th></tr></tfoot>
         </table>
+
+        <h3>Best case / worst case <span class="hint-inline">(same kWh, using the cleanest vs. dirtiest available energy source)</span></h3>
+        <div class="range-meter-wrap">
+          <div class="range-meter-labels"><span class="best" id="water-range-best-label"></span><span class="worst" id="water-range-worst-label"></span></div>
+          <div class="range-meter"><div class="range-meter-marker" id="water-range-marker"></div></div>
+          <div class="range-meter-your">Your total: <strong id="water-range-your"></strong></div>
+        </div>
+
         <h3>Hotspot chart</h3>
         <div id="water-chart" class="chart"></div>
+        <div class="export-row">
+          <button type="button" class="btn-secondary" onclick="exportCsv('water', 'water-consumption')">⬇ Export CSV</button>
+        </div>
       </div>
     </section>
   </section>
@@ -188,8 +220,19 @@
           <tbody id="energy-tbody"></tbody>
           <tfoot><tr><th colspan="2">Total energy used in production</th><th id="energy-total"></th></tr></tfoot>
         </table>
+
+        <h3>Best case / worst case <span class="hint-inline">(same kWh, using the cleanest vs. dirtiest available energy source)</span></h3>
+        <div class="range-meter-wrap">
+          <div class="range-meter-labels"><span class="best" id="energy-range-best-label"></span><span class="worst" id="energy-range-worst-label"></span></div>
+          <div class="range-meter"><div class="range-meter-marker" id="energy-range-marker"></div></div>
+          <div class="range-meter-your">Your total: <strong id="energy-range-your"></strong></div>
+        </div>
+
         <h3>Hotspot chart</h3>
         <div id="energy-chart" class="chart"></div>
+        <div class="export-row">
+          <button type="button" class="btn-secondary" onclick="exportCsv('energy', 'energy-in-production')">⬇ Export CSV</button>
+        </div>
       </div>
     </section>
   </section>
@@ -207,13 +250,24 @@
       </form>
       <div id="recycled-empty" class="hint">Add a material above to see recycled content.</div>
       <div id="recycled-body" style="display:none;">
+        <div class="meter-row">
+          <div class="radial-meter" id="recycled-meter">
+            <div class="radial-meter-inner">
+              <span class="radial-meter-value" id="recycled-total">0%</span>
+              <span class="radial-meter-caption">recycled</span>
+            </div>
+          </div>
+          <div class="meter-hints" id="recycled-hints"></div>
+        </div>
         <table class="results-table">
           <thead><tr><th>Material</th><th>Category</th><th>Weight</th><th>Recycled %</th></tr></thead>
           <tbody id="recycled-tbody"></tbody>
-          <tfoot><tr><th colspan="3">Weighted recycled content</th><th id="recycled-total"></th></tr></tfoot>
         </table>
         <h3>By material</h3>
         <div id="recycled-chart" class="chart"></div>
+        <div class="export-row">
+          <button type="button" class="btn-secondary" onclick="exportCsv('recycled', 'recycled-content')">⬇ Export CSV</button>
+        </div>
       </div>
     </section>
   </section>
