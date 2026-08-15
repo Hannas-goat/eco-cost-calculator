@@ -5,11 +5,34 @@ let activePresetKey = null; // set when a preset is loaded, so we can show the v
 
 const SCENARIOS_KEY = 'ecocost_scenarios';
 
-function fmt(n) {
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const METRICS = {
+  ecoCost: { label: 'Eco-cost', unit: '€', digits: 2, prefix: true },
+  co2e: { label: 'Carbon footprint', unit: 'kg CO2e', digits: 2, prefix: false },
+  water: { label: 'Water consumption', unit: 'L', digits: 1, prefix: false },
+  energyIn: { label: 'Energy used in production', unit: 'kWh', digits: 2, prefix: false },
+};
+
+function fmt(n, digits = 2) {
+  return n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
+}
+
+function fmtMetric(n, key) {
+  const cfg = METRICS[key];
+  return cfg.prefix ? `€${fmt(n, cfg.digits)}` : `${fmt(n, cfg.digits)} ${cfg.unit}`;
 }
 
 function findById(list, id) { return list.find(x => x.id === id); }
+
+// --- Tabs ---
+const TABS = ['home', 'carbon', 'water', 'energy', 'recycled', 'sensitivity'];
+
+function showTab(name) {
+  for (const id of TABS) {
+    document.getElementById(`tab-${id}`).style.display = id === name ? '' : 'none';
+    document.getElementById(`tabbtn-${id}`).classList.toggle('active', id === name);
+  }
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
 
 // --- Dropdown population ---
 function populateSelect(selectEl, options, valueKey, labelFn) {
@@ -104,14 +127,20 @@ function addTransport() {
 
 function addCustomLine() {
   const name = document.getElementById('custom-name').value.trim();
-  const value = Number(document.getElementById('custom-value').value);
-  if (!name || Number.isNaN(value)) {
-    alert('Give the custom line a description and a euro value.');
+  const ecoCost = Number(document.getElementById('custom-value').value) || 0;
+  const co2e = Number(document.getElementById('custom-co2e').value) || 0;
+  const water = Number(document.getElementById('custom-water').value) || 0;
+  const energyIn = Number(document.getElementById('custom-energy').value) || 0;
+  if (!name || (!ecoCost && !co2e && !water && !energyIn)) {
+    alert('Give the custom line a description and at least one value.');
     return;
   }
-  product.customLines.push({ id: nextLineId++, name, ecoCost: value });
+  product.customLines.push({ id: nextLineId++, name, ecoCost, co2e, water, energyIn });
   document.getElementById('custom-name').value = '';
   document.getElementById('custom-value').value = '';
+  document.getElementById('custom-co2e').value = '';
+  document.getElementById('custom-water').value = '';
+  document.getElementById('custom-energy').value = '';
   activePresetKey = null;
   renderAll();
 }
@@ -130,8 +159,8 @@ function removeAssembly() {
   renderAll();
 }
 
-function totalPartsWeight() {
-  return product.parts.reduce((sum, p) => sum + p.weight, 0);
+function totalPartsWeight(p = product) {
+  return p.parts.reduce((sum, x) => sum + x.weight, 0);
 }
 
 function clearProduct() {
@@ -141,56 +170,93 @@ function clearProduct() {
 }
 
 // --- Calculation ---
-function computeLineItems() {
+function computeLineItems(p = product) {
   const items = [];
 
-  for (const part of product.parts) {
+  for (const part of p.parts) {
     const material = findById(MATERIALS, part.materialId);
     const process = part.processId ? findById(PROCESSES, part.processId) : null;
     const eol = part.endOfLifeId ? findById(END_OF_LIFE, part.endOfLifeId) : null;
-    const materialCost = part.weight * material.ecoCost;
-    const processCost = process ? part.weight * process.ecoCost : 0;
-    const eolCost = eol ? part.weight * eol.ecoCost : 0;
+    const sumField = (key) =>
+      part.weight * material[key] + (process ? part.weight * process[key] : 0) + (eol ? part.weight * eol[key] : 0);
     const detailBits = [`${part.weight} kg × ${material.name} (€${material.ecoCost}/kg)`];
     if (process) detailBits.push(`+ ${process.name} (€${process.ecoCost}/kg)`);
     if (eol && eol.ecoCost !== 0) detailBits.push(`+ ${eol.name} (€${eol.ecoCost}/kg)`);
     items.push({
       label: part.name,
       detail: detailBits.join(' '),
-      ecoCost: materialCost + processCost + eolCost,
       kind: 'part',
+      ecoCost: sumField('ecoCost'),
+      co2e: sumField('co2e'),
+      water: sumField('water'),
+      energyIn: sumField('energyIn'),
     });
   }
 
-  if (product.assembly) {
-    const energy = findById(ENERGY, product.assembly.energyId);
-    const mj = product.assembly.mjPerKg * totalPartsWeight();
+  if (p.assembly) {
+    const energy = findById(ENERGY, p.assembly.energyId);
+    const mj = p.assembly.mjPerKg * totalPartsWeight(p);
+    const kwh = mj / 3.6;
     items.push({
       label: 'Assembly energy',
-      detail: `${product.assembly.mjPerKg} MJ/kg × ${totalPartsWeight()} kg = ${mj.toFixed(3)} MJ × ${energy.name} (€${energy.ecoCost}/MJ)`,
-      ecoCost: mj * energy.ecoCost,
+      detail: `${p.assembly.mjPerKg} MJ/kg × ${totalPartsWeight(p)} kg = ${mj.toFixed(3)} MJ (${kwh.toFixed(3)} kWh) × ${energy.name}`,
       kind: 'assembly',
+      ecoCost: mj * energy.ecoCost,
+      co2e: kwh * energy.co2e,
+      water: kwh * energy.water,
+      energyIn: kwh * energy.energyIn,
     });
   }
 
-  for (const leg of product.transportLegs) {
+  for (const leg of p.transportLegs) {
     const transport = findById(TRANSPORT, leg.transportId);
     items.push({
       label: `Transport: ${transport.name}`,
-      detail: `${leg.tkm.toFixed(4)} tkm × €${transport.ecoCost}/tkm (${leg.distanceKm} km)`,
-      ecoCost: leg.tkm * transport.ecoCost,
+      detail: `${leg.tkm.toFixed(4)} tkm (${leg.distanceKm} km)`,
       kind: 'transport',
+      ecoCost: leg.tkm * transport.ecoCost,
+      co2e: leg.tkm * transport.co2e,
+      water: leg.tkm * transport.water,
+      energyIn: leg.tkm * transport.energyIn,
     });
   }
 
-  for (const custom of product.customLines) {
-    items.push({ label: custom.name, detail: 'Custom eco-cost', ecoCost: custom.ecoCost, kind: 'custom' });
+  for (const custom of p.customLines) {
+    items.push({
+      label: custom.name,
+      detail: 'Custom line',
+      kind: 'custom',
+      ecoCost: custom.ecoCost || 0,
+      co2e: custom.co2e || 0,
+      water: custom.water || 0,
+      energyIn: custom.energyIn || 0,
+    });
   }
 
   return items;
 }
 
-// --- Rendering ---
+function totalsFor(items) {
+  return {
+    ecoCost: items.reduce((s, i) => s + i.ecoCost, 0),
+    co2e: items.reduce((s, i) => s + i.co2e, 0),
+    water: items.reduce((s, i) => s + i.water, 0),
+    energyIn: items.reduce((s, i) => s + i.energyIn, 0),
+  };
+}
+
+function computeRecycledPct(p = product) {
+  let totalWeight = 0;
+  let recycledWeight = 0;
+  for (const part of p.parts) {
+    const material = findById(MATERIALS, part.materialId);
+    totalWeight += part.weight;
+    recycledWeight += part.weight * (material.recycledPct / 100);
+  }
+  return totalWeight > 0 ? (recycledWeight / totalWeight) * 100 : 0;
+}
+
+// --- Rendering: builder ---
 function lineItemRow(kind, id, label, detail) {
   return `<div class="line-item">
     <span class="line-item-label">${label}</span>
@@ -233,52 +299,57 @@ function renderTransport() {
 function renderCustom() {
   const el = document.getElementById('custom-list');
   el.innerHTML = product.customLines.length
-    ? product.customLines.map(c => lineItemRow('custom', c.id, c.name, `€${fmt(c.ecoCost)}`)).join('')
+    ? product.customLines.map(c => lineItemRow('custom', c.id,
+        c.name, `€${fmt(c.ecoCost)} · ${fmt(c.co2e)} kg CO2e · ${fmt(c.water, 1)} L · ${fmt(c.energyIn)} kWh`)).join('')
     : '<p class="hint">No custom lines yet.</p>';
 }
 
-function renderResults() {
-  const items = computeLineItems();
-  const empty = document.getElementById('results-empty');
-  const body = document.getElementById('results-body');
+// --- Rendering: shared breakdown table + hotspot chart, reused by every metric tab ---
+function renderBreakdown(items, metricKey, ids) {
+  const empty = document.getElementById(ids.empty);
+  const body = document.getElementById(ids.body);
   if (!items.length) {
     empty.style.display = '';
     body.style.display = 'none';
-    document.getElementById('preset-check').style.display = 'none';
-    return;
+    return null;
   }
   empty.style.display = 'none';
   body.style.display = '';
 
-  const total = items.reduce((sum, i) => sum + i.ecoCost, 0);
-  const maxAbs = Math.max(...items.map(i => Math.abs(i.ecoCost)), 0.0001);
-  const sorted = [...items].sort((a, b) => Math.abs(b.ecoCost) - Math.abs(a.ecoCost));
-  const hotspotLabel = sorted.find(i => i.ecoCost > 0)?.label;
+  const total = items.reduce((sum, i) => sum + i[metricKey], 0);
+  const maxAbs = Math.max(...items.map(i => Math.abs(i[metricKey])), 0.0001);
+  const sorted = [...items].sort((a, b) => Math.abs(b[metricKey]) - Math.abs(a[metricKey]));
+  const hotspotLabel = sorted.find(i => i[metricKey] > 0)?.label;
 
-  document.getElementById('results-tbody').innerHTML = items.map(i => `
+  document.getElementById(ids.tbody).innerHTML = items.map(i => `
     <tr class="${i.label === hotspotLabel ? 'row-hotspot' : ''}">
       <td>${i.label}${i.label === hotspotLabel ? ' <span class="hotspot-badge">🔥 hotspot</span>' : ''}</td>
       <td class="detail-cell">${i.detail}</td>
-      <td class="num">${fmt(i.ecoCost)}</td>
+      <td class="num">${fmtMetric(i[metricKey], metricKey)}</td>
     </tr>`).join('');
-  document.getElementById('results-total').textContent = `€${fmt(total)}`;
+  document.getElementById(ids.total).textContent = fmtMetric(total, metricKey);
 
-  document.getElementById('hotspot-chart').innerHTML = sorted.map(i => {
-    const pct = (Math.abs(i.ecoCost) / maxAbs) * 100;
-    const barClass = i.ecoCost < 0 ? 'bar-credit' : 'bar-burden';
+  document.getElementById(ids.chart).innerHTML = sorted.map(i => {
+    const pct = (Math.abs(i[metricKey]) / maxAbs) * 100;
+    const barClass = i[metricKey] < 0 ? 'bar-credit' : 'bar-burden';
     return `<div class="chart-row">
       <span class="chart-label">${i.label}</span>
       <div class="chart-track"><div class="chart-bar ${barClass}" style="width:${pct}%"></div></div>
-      <span class="chart-value">€${fmt(i.ecoCost)}</span>
+      <span class="chart-value">${fmtMetric(i[metricKey], metricKey)}</span>
     </div>`;
   }).join('');
 
-  renderPresetCheck(total);
+  return total;
 }
+
+const ECO_IDS = { empty: 'results-empty', body: 'results-body', tbody: 'results-tbody', total: 'results-total', chart: 'hotspot-chart' };
+const CARBON_IDS = { empty: 'carbon-empty', body: 'carbon-body', tbody: 'carbon-tbody', total: 'carbon-total', chart: 'carbon-chart' };
+const WATER_IDS = { empty: 'water-empty', body: 'water-body', tbody: 'water-tbody', total: 'water-total', chart: 'water-chart' };
+const ENERGY_IDS = { empty: 'energy-empty', body: 'energy-body', tbody: 'energy-tbody', total: 'energy-total', chart: 'energy-chart' };
 
 function renderPresetCheck(total) {
   const el = document.getElementById('preset-check');
-  if (!activePresetKey) { el.style.display = 'none'; return; }
+  if (!activePresetKey || total === null) { el.style.display = 'none'; return; }
   const preset = PRESET_EXAMPLES[activePresetKey];
   const diff = Math.abs(total - preset.expectedTotal);
   const withinTolerance = diff <= 0.10;
@@ -288,12 +359,147 @@ function renderPresetCheck(total) {
     This calculator computed €${fmt(total)} (difference €${fmt(diff)}, from source figures pre-rounded to 2 decimals).`;
 }
 
+function renderOverview(items) {
+  const totals = totalsFor(items);
+  document.getElementById('stat-ecoCost').textContent = fmtMetric(totals.ecoCost, 'ecoCost');
+  document.getElementById('stat-co2e').textContent = fmtMetric(totals.co2e, 'co2e');
+  document.getElementById('stat-water').textContent = fmtMetric(totals.water, 'water');
+  document.getElementById('stat-energyIn').textContent = fmtMetric(totals.energyIn, 'energyIn');
+  document.getElementById('stat-recycled').textContent = `${fmt(computeRecycledPct(), 1)}%`;
+}
+
+function renderRecycledTab() {
+  const empty = document.getElementById('recycled-empty');
+  const body = document.getElementById('recycled-body');
+  if (!product.parts.length) {
+    empty.style.display = '';
+    body.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  body.style.display = '';
+
+  let totalWeight = 0;
+  let recycledWeight = 0;
+  document.getElementById('recycled-tbody').innerHTML = product.parts.map(p => {
+    const material = findById(MATERIALS, p.materialId);
+    totalWeight += p.weight;
+    recycledWeight += p.weight * (material.recycledPct / 100);
+    return `<tr>
+      <td>${p.name}</td>
+      <td class="detail-cell">${material.name}</td>
+      <td class="num">${fmt(p.weight)} kg</td>
+      <td class="num">${fmt(material.recycledPct, 0)}%</td>
+    </tr>`;
+  }).join('');
+
+  const pct = totalWeight > 0 ? (recycledWeight / totalWeight) * 100 : 0;
+  document.getElementById('recycled-total').textContent = `${fmt(pct, 1)}%`;
+
+  const maxAbs = 100;
+  document.getElementById('recycled-chart').innerHTML = product.parts.map(p => {
+    const material = findById(MATERIALS, p.materialId);
+    return `<div class="chart-row">
+      <span class="chart-label">${p.name}</span>
+      <div class="chart-track"><div class="chart-bar bar-credit" style="width:${material.recycledPct}%"></div></div>
+      <span class="chart-value">${fmt(material.recycledPct, 0)}%</span>
+    </div>`;
+  }).join('');
+}
+
+// --- Sensitivity analysis ---
+function sensitivityTargets() {
+  const targets = [];
+  product.parts.forEach(p => targets.push({ id: `part:${p.id}`, label: `Part: ${p.name} (weight)` }));
+  if (product.assembly) targets.push({ id: 'assembly:0', label: 'Assembly energy (MJ/kg)' });
+  product.transportLegs.forEach(t => {
+    const transport = findById(TRANSPORT, t.transportId);
+    targets.push({ id: `transport:${t.id}`, label: `Transport: ${transport.name} (distance)` });
+  });
+  product.customLines.forEach(c => targets.push({ id: `custom:${c.id}`, label: `Custom: ${c.name}` }));
+  return targets;
+}
+
+function renderSensitivityOptions() {
+  const select = document.getElementById('sens-target');
+  const targets = sensitivityTargets();
+  const prevValue = select.value;
+  select.innerHTML = targets.map(t => `<option value="${t.id}">${t.label}</option>`).join('');
+  if (targets.some(t => t.id === prevValue)) select.value = prevValue;
+
+  const hasTargets = targets.length > 0;
+  document.getElementById('sens-empty').style.display = hasTargets ? 'none' : '';
+  document.getElementById('sens-form').style.display = hasTargets ? '' : 'none';
+  if (!hasTargets) document.getElementById('sens-table').style.display = 'none';
+}
+
+function buildScaledProduct(targetId, factor) {
+  const clone = JSON.parse(JSON.stringify(product));
+  const [type, idStr] = targetId.split(':');
+  const id = Number(idStr);
+  if (type === 'part') {
+    const p = clone.parts.find(x => x.id === id);
+    if (p) p.weight *= factor;
+  } else if (type === 'assembly') {
+    if (clone.assembly) clone.assembly.mjPerKg *= factor;
+  } else if (type === 'transport') {
+    const t = clone.transportLegs.find(x => x.id === id);
+    if (t) { t.distanceKm *= factor; t.tkm *= factor; }
+  } else if (type === 'custom') {
+    const c = clone.customLines.find(x => x.id === id);
+    if (c) {
+      c.ecoCost = (c.ecoCost || 0) * factor;
+      c.co2e = (c.co2e || 0) * factor;
+      c.water = (c.water || 0) * factor;
+      c.energyIn = (c.energyIn || 0) * factor;
+    }
+  }
+  return clone;
+}
+
+function runSensitivity() {
+  const targetId = document.getElementById('sens-target').value;
+  if (!targetId) return;
+  const pct = Number(document.getElementById('sens-variation').value);
+
+  const base = totalsFor(computeLineItems(product));
+  const down = totalsFor(computeLineItems(buildScaledProduct(targetId, 1 - pct / 100)));
+  const up = totalsFor(computeLineItems(buildScaledProduct(targetId, 1 + pct / 100)));
+
+  document.getElementById('sens-table').style.display = '';
+  document.getElementById('sens-tbody').innerHTML = Object.keys(METRICS).map(key => {
+    const lo = Math.min(down[key], up[key]);
+    const hi = Math.max(down[key], up[key]);
+    return `<tr>
+      <td>${METRICS[key].label}</td>
+      <td class="num">${fmtMetric(down[key], key)}</td>
+      <td class="num">${fmtMetric(base[key], key)}</td>
+      <td class="num">${fmtMetric(up[key], key)}</td>
+      <td class="num">${fmtMetric(hi - lo, key)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// --- Rendering: master ---
 function renderAll() {
   renderParts();
   renderAssembly();
   renderTransport();
   renderCustom();
-  renderResults();
+
+  const items = computeLineItems();
+  renderOverview(items);
+
+  const ecoTotal = renderBreakdown(items, 'ecoCost', ECO_IDS);
+  renderPresetCheck(ecoTotal);
+  renderBreakdown(items, 'co2e', CARBON_IDS);
+  renderBreakdown(items, 'water', WATER_IDS);
+  renderBreakdown(items, 'energyIn', ENERGY_IDS);
+
+  renderRecycledTab();
+  renderSensitivityOptions();
+  document.getElementById('sens-table').style.display = 'none';
+
   updateTransportPreview();
 }
 
@@ -312,11 +518,12 @@ function loadPreset(key) {
   }
   if (preset.customLines) {
     for (const c of preset.customLines) {
-      product.customLines.push({ id: nextLineId++, name: c.name, ecoCost: c.ecoCost });
+      product.customLines.push({ id: nextLineId++, name: c.name, ecoCost: c.ecoCost, co2e: 0, water: 0, energyIn: 0 });
     }
   }
   activePresetKey = key;
   renderAll();
+  showTab('home');
 }
 
 // --- Scenarios (localStorage) ---
@@ -333,9 +540,10 @@ function saveScenario() {
   if (!name) { alert('Name this scenario first.'); return; }
   const items = computeLineItems();
   if (!items.length) { alert('Build a product before saving it as a scenario.'); return; }
-  const total = items.reduce((sum, i) => sum + i.ecoCost, 0);
+  const totals = totalsFor(items);
+  const recycledPct = computeRecycledPct();
   const scenarios = loadScenarios();
-  scenarios.push({ id: Date.now(), name, total, product: JSON.parse(JSON.stringify(product)) });
+  scenarios.push({ id: Date.now(), name, totals, recycledPct, product: JSON.parse(JSON.stringify(product)) });
   saveScenarios(scenarios);
   document.getElementById('scenario-name').value = '';
   renderScenarios();
@@ -353,7 +561,11 @@ function loadScenario(id) {
   nextLineId = Math.max(1, ...[...product.parts, ...product.transportLegs, ...product.customLines].map(x => x.id + 1));
   activePresetKey = null;
   renderAll();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  showTab('home');
+}
+
+function scenarioTotals(s) {
+  return s.totals || { ecoCost: s.total || 0, co2e: 0, water: 0, energyIn: 0 };
 }
 
 function renderScenarios() {
@@ -370,21 +582,28 @@ function renderScenarios() {
   empty.style.display = 'none';
   table.style.display = '';
 
-  document.getElementById('scenarios-tbody').innerHTML = scenarios.map(s => `
-    <tr>
+  document.getElementById('scenarios-tbody').innerHTML = scenarios.map(s => {
+    const totals = scenarioTotals(s);
+    return `<tr>
       <td><a href="#" onclick="loadScenario(${s.id}); return false;">${s.name}</a></td>
-      <td class="num">${fmt(s.total)}</td>
+      <td class="num">${fmtMetric(totals.ecoCost, 'ecoCost')}</td>
+      <td class="num">${fmtMetric(totals.co2e, 'co2e')}</td>
+      <td class="num">${fmtMetric(totals.water, 'water')}</td>
+      <td class="num">${fmtMetric(totals.energyIn, 'energyIn')}</td>
+      <td class="num">${fmt(s.recycledPct || 0, 1)}%</td>
       <td><button type="button" class="btn-remove" onclick="deleteScenario(${s.id})">✕</button></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
-  const maxAbs = Math.max(...scenarios.map(s => Math.abs(s.total)), 0.0001);
+  const maxAbs = Math.max(...scenarios.map(s => Math.abs(scenarioTotals(s).ecoCost)), 0.0001);
   chart.innerHTML = scenarios.map(s => {
-    const pct = (Math.abs(s.total) / maxAbs) * 100;
-    const barClass = s.total < 0 ? 'bar-credit' : 'bar-burden';
+    const total = scenarioTotals(s).ecoCost;
+    const pct = (Math.abs(total) / maxAbs) * 100;
+    const barClass = total < 0 ? 'bar-credit' : 'bar-burden';
     return `<div class="chart-row">
       <span class="chart-label">${s.name}</span>
       <div class="chart-track"><div class="chart-bar ${barClass}" style="width:${pct}%"></div></div>
-      <span class="chart-value">€${fmt(s.total)}</span>
+      <span class="chart-value">€${fmt(total)}</span>
     </div>`;
   }).join('');
 }
@@ -393,3 +612,4 @@ function renderScenarios() {
 initDropdowns();
 renderAll();
 renderScenarios();
+showTab('home');
