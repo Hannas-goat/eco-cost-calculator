@@ -1,28 +1,38 @@
 # Eco-Cost Calculator
 
-A Life Cycle Assessment (LCA) tool: build a product from parts (material +
-weight), optional processing and end-of-life treatment per part, assembly energy,
-transport, and any custom line item — and get a full multi-indicator impact
-breakdown, plus the ability to save and compare scenarios (base case vs.
-alternative material vs. closed-loop recycling, etc.).
+A Life Cycle Assessment (LCA) tool with six tabs, each independently usable: a
+product-level eco-cost calculator (Home) plus five standalone single-purpose
+calculators for other environmental indicators.
 
-Uses the single-indicator eco-costs method (in euro) as its primary metric, with
-two "Load example" presets (felt-tip pen, pencil body) included as quick-start
+Home uses the single-indicator eco-costs method (in euro): build a product from
+parts (material + weight), optional processing and end-of-life treatment per
+part, assembly energy, transport, and any custom line item, and get an eco-cost
+breakdown with a hotspot chart, plus the ability to save and compare scenarios
+(base case vs. alternative material vs. closed-loop recycling, etc.). Two "Load
+example" presets (felt-tip pen, pencil body) are included as quick-start
 templates.
 
 ## Tabs
 
-- **Home** — the product builder, an overview dashboard totalling every
-  indicator at once, the eco-cost breakdown/hotspot chart, and saved-scenario
-  comparison.
-- **Carbon footprint** — kg CO2e breakdown and hotspot chart.
-- **Water consumption** — litres breakdown and hotspot chart.
-- **Energy used in production** — kWh (embodied/cumulative energy demand)
+- **Home** — the eco-cost product builder, plus an overview dashboard
+  previewing the current result from every other tab.
+- **Carbon footprint** — standalone: add energy sources and kWh used, get a
+  kg CO2e breakdown and hotspot chart.
+- **Water consumption** — standalone: same energy-usage inputs, litres
   breakdown and hotspot chart.
-- **Recycled content** — weight-weighted % recycled content across the parts
-  in your product.
-- **Sensitivity analysis** — pick one input from your current product, vary it
-  by ±10/20/50%, and see how every indicator responds.
+- **Energy used in production** — standalone: same energy-usage inputs, kWh
+  (embodied/cumulative energy demand) breakdown and hotspot chart.
+- **Recycled content** — standalone: add materials and weights, get a
+  weight-weighted % recycled content.
+- **Sensitivity analysis** — standalone: enter any base value, vary it by
+  ±10/20/50%, and see the resulting range.
+
+Carbon footprint, Water consumption, and Energy used in production share one
+underlying list of energy-usage entries (source + kWh) — add an entry from any
+of the three tabs and all three totals update together, since they're all
+measured per kWh of the same energy use. Recycled content and Sensitivity
+analysis each keep entirely separate state. None of the five standalone tabs
+read from the Home product builder, or from each other.
 
 ## Running it
 
