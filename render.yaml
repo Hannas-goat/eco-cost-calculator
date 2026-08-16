@@ -1,7 +1,13 @@
 services:
   - type: web
     name: eco-cost-calculator
-    runtime: static
-    staticPublishPath: .
-    buildCommand: ""
-    pullRequestPreviewsEnabled: false
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+      - key: JWT_SECRET
+        sync: false

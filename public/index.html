@@ -27,11 +27,8 @@
   <!-- ===== HOME ===== -->
   <section id="tab-home" class="tab-panel">
 
-    <section class="card" id="account-card" style="display:none;">
+    <section class="card" id="account-card">
       <h2>Account</h2>
-      <div id="account-not-configured" class="hint" style="display:none;">
-        Accounts aren't set up for this site yet — see <code>supabase-config.js</code>. Your builds still save in this browser either way.
-      </div>
       <div id="account-signed-out">
         <p class="hint">Sign in to save your builds to your account and access them from any device. Without an account, builds are saved only in this browser.</p>
         <form class="add-form" onsubmit="return false;">
@@ -311,8 +308,6 @@
   </details>
 </footer>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="supabase-config.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>

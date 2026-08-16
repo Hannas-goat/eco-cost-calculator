@@ -1,0 +1,29 @@
+{
+  "name": "eco-cost-calculator",
+  "version": "1.0.0",
+  "description": "A Life Cycle Assessment (LCA) tool with optional accounts (Express + Turso) so builds can be saved to your account and accessed from any device.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Hannas-goat/eco-cost-calculator.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Hannas-goat/eco-cost-calculator/issues"
+  },
+  "homepage": "https://github.com/Hannas-goat/eco-cost-calculator#readme",
+  "dependencies": {
+    "@libsql/client": "^0.17.4",
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.6.2",
+    "jsonwebtoken": "^9.0.3"
+  }
+}

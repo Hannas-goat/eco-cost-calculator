@@ -688,34 +688,38 @@ function loadPreset(key) {
   showTab('home');
 }
 
-// --- Account: Supabase auth (email/password), gracefully disabled if unconfigured ---
-// `SUPABASE_URL` / `SUPABASE_ANON_KEY` come from supabase-config.js, loaded before this file.
-// Guarded against the CDN failing to load too, so a network hiccup on a third-party
-// script disables accounts only — it must never take down the rest of the calculator.
-let supabaseClient = null;
-try {
-  if (typeof SUPABASE_URL === 'string' && SUPABASE_URL && typeof SUPABASE_ANON_KEY === 'string' && SUPABASE_ANON_KEY && typeof supabase !== 'undefined') {
-    supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  }
-} catch (e) {
-  supabaseClient = null;
+// --- Account: our own /api backend (Express + Turso), session via httpOnly cookie ---
+let currentUser = null; // { id, email } or null when signed out
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    method: options.method || 'GET',
+    headers: options.body ? { 'Content-Type': 'application/json' } : undefined,
+    body: options.body ? JSON.stringify(options.body) : undefined,
+    credentials: 'same-origin',
+  });
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* no JSON body, e.g. 204 */ }
+  return { ok: res.ok, status: res.status, data: data || {} };
 }
-const supabaseConfigured = supabaseClient !== null;
-let currentUser = null; // Supabase auth user object, or null when signed out / not configured
+
+async function refreshCurrentUser() {
+  const { ok, data } = await api('/api/me');
+  currentUser = ok ? data.user : null;
+  renderAccountUI();
+}
 
 function renderAccountUI() {
-  document.getElementById('account-card').style.display = '';
-  document.getElementById('account-not-configured').style.display = supabaseConfigured ? 'none' : '';
-  document.getElementById('account-signed-out').style.display = (supabaseConfigured && !currentUser) ? '' : 'none';
-  document.getElementById('account-signed-in').style.display = (supabaseConfigured && currentUser) ? '' : 'none';
+  document.getElementById('account-signed-out').style.display = currentUser ? 'none' : '';
+  document.getElementById('account-signed-in').style.display = currentUser ? '' : 'none';
   if (currentUser) document.getElementById('auth-user-email').textContent = currentUser.email;
 
   const hasLocalScenarios = loadLocalScenarios().length > 0;
   document.getElementById('auth-import-row').style.display = (currentUser && hasLocalScenarios) ? '' : 'none';
 
-  document.getElementById('scenarios-storage-note').textContent = !supabaseConfigured
-    ? '(saved only in this browser)'
-    : currentUser ? '(saved to your account)' : '(saved only in this browser — sign in above to save to your account)';
+  document.getElementById('scenarios-storage-note').textContent = currentUser
+    ? '(saved to your account)'
+    : '(saved only in this browser — sign in above to save to your account)';
 }
 
 async function authSignUp() {
@@ -724,8 +728,12 @@ async function authSignUp() {
   const msg = document.getElementById('auth-message');
   if (!email || password.length < 6) { msg.textContent = 'Enter an email and a password of at least 6 characters.'; return; }
   msg.textContent = 'Signing up…';
-  const { error } = await supabaseClient.auth.signUp({ email, password });
-  msg.textContent = error ? error.message : 'Check your email to confirm your account, then log in.';
+  const { ok, data } = await api('/api/signup', { method: 'POST', body: { email, password } });
+  if (!ok) { msg.textContent = data.error || 'Sign up failed.'; return; }
+  currentUser = data.user;
+  msg.textContent = '';
+  renderAccountUI();
+  await renderScenarios();
 }
 
 async function authLogIn() {
@@ -734,20 +742,28 @@ async function authLogIn() {
   const msg = document.getElementById('auth-message');
   if (!email || !password) { msg.textContent = 'Enter your email and password.'; return; }
   msg.textContent = 'Logging in…';
-  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-  if (error) msg.textContent = error.message;
+  const { ok, data } = await api('/api/login', { method: 'POST', body: { email, password } });
+  if (!ok) { msg.textContent = data.error || 'Log in failed.'; return; }
+  currentUser = data.user;
+  msg.textContent = '';
+  renderAccountUI();
+  await renderScenarios();
 }
 
 async function authLogOut() {
-  await supabaseClient.auth.signOut();
+  await api('/api/logout', { method: 'POST' });
+  currentUser = null;
+  renderAccountUI();
+  await renderScenarios();
 }
 
 async function importLocalScenarios() {
   if (!currentUser) return;
   const local = loadLocalScenarios();
   for (const s of local) {
-    await supabaseClient.from('scenarios').insert({
-      user_id: currentUser.id, name: s.name, totals: scenarioTotals(s), recycled_pct: s.recycledPct || 0, product: s.product,
+    await api('/api/scenarios', {
+      method: 'POST',
+      body: { name: s.name, totals: scenarioTotals(s), recycledPct: s.recycledPct || 0, product: s.product },
     });
   }
   saveLocalScenarios([]);
@@ -755,7 +771,7 @@ async function importLocalScenarios() {
   renderAccountUI();
 }
 
-// --- Scenarios: Supabase when signed in, localStorage otherwise ---
+// --- Scenarios: our /api backend when signed in, localStorage otherwise ---
 function loadLocalScenarios() {
   try { return JSON.parse(localStorage.getItem(SCENARIOS_KEY) || '[]'); } catch (e) { return []; }
 }
@@ -773,10 +789,8 @@ async function saveScenario() {
   const recycledPct = computeRecycledPct();
 
   if (currentUser) {
-    const { error } = await supabaseClient.from('scenarios').insert({
-      user_id: currentUser.id, name, totals, recycled_pct: recycledPct, product,
-    });
-    if (error) { alert('Could not save to your account: ' + error.message); return; }
+    const { ok, data } = await api('/api/scenarios', { method: 'POST', body: { name, totals, recycledPct, product } });
+    if (!ok) { alert('Could not save to your account: ' + (data.error || 'unknown error')); return; }
   } else {
     const scenarios = loadLocalScenarios();
     scenarios.push({ id: String(Date.now()), name, totals, recycledPct, product: JSON.parse(JSON.stringify(product)) });
@@ -788,7 +802,7 @@ async function saveScenario() {
 
 async function deleteScenario(id) {
   if (currentUser) {
-    await supabaseClient.from('scenarios').delete().eq('id', id);
+    await api(`/api/scenarios/${encodeURIComponent(id)}`, { method: 'DELETE' });
   } else {
     saveLocalScenarios(loadLocalScenarios().filter(s => s.id !== id));
   }
@@ -798,9 +812,9 @@ async function deleteScenario(id) {
 async function loadScenario(id) {
   let loadedProduct;
   if (currentUser) {
-    const { data } = await supabaseClient.from('scenarios').select('product').eq('id', id).single();
-    if (!data) return;
-    loadedProduct = data.product;
+    const { ok, data } = await api(`/api/scenarios/${encodeURIComponent(id)}`);
+    if (!ok) return;
+    loadedProduct = data.scenario.product;
   } else {
     const scenario = loadLocalScenarios().find(s => s.id === id);
     if (!scenario) return;
@@ -820,8 +834,8 @@ function scenarioTotals(s) {
 async function renderScenarios() {
   let scenarios;
   if (currentUser) {
-    const { data, error } = await supabaseClient.from('scenarios').select('*').order('created_at', { ascending: true });
-    scenarios = error ? [] : data.map(row => ({ id: row.id, name: row.name, totals: row.totals, recycledPct: row.recycled_pct }));
+    const { ok, data } = await api('/api/scenarios');
+    scenarios = ok ? data.scenarios : [];
   } else {
     scenarios = loadLocalScenarios().map(s => ({ id: s.id, name: s.name, totals: scenarioTotals(s), recycledPct: s.recycledPct || 0 }));
   }
@@ -866,13 +880,5 @@ async function renderScenarios() {
 initDropdowns();
 renderAll();
 renderAccountUI();
-if (supabaseConfigured) {
-  supabaseClient.auth.onAuthStateChange((event, session) => {
-    currentUser = session ? session.user : null;
-    renderAccountUI();
-    renderScenarios();
-  });
-} else {
-  renderScenarios();
-}
+refreshCurrentUser().then(renderScenarios);
 showTab('home');

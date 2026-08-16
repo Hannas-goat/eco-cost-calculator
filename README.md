@@ -39,48 +39,62 @@ layout via the browser's native print dialog.
 
 ## Accounts
 
-Optional — the calculator works fully without one; saved scenarios just stay
-in the current browser's `localStorage`. To let people sign in and access
-their saved builds from any device:
+Optional — the calculator works fully without signing in; saved scenarios
+then just stay in the current browser's `localStorage`. Signing in saves
+scenarios to your account instead, accessible from any device.
 
-1. Create a free project at [supabase.com](https://supabase.com).
-2. In the SQL Editor, create the `scenarios` table and its row-level-security
-   policies (see the SQL in this repo's setup notes / commit history for
-   `supabase-config.js` — it ensures each user can only ever see their own rows).
-3. Fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `supabase-config.js` from
-   your project's Settings → API page. The anon key is meant to be public —
-   access control comes from the RLS policies, not from hiding this key.
+This runs on a small Express server (not a static site) with its own
+database and hand-rolled email/password auth (bcrypt-hashed passwords, a
+signed JWT in an httpOnly cookie). The database is [Turso](https://turso.tech)
+(hosted libSQL/SQLite), but the server also works against a local SQLite file
+with zero setup — see "Running it" below.
 
-Until both values are filled in, the Account section on Home shows "not
-configured" and everything else works exactly as before — nothing else in the
-app depends on this being set up. The Supabase JS client loads from a CDN
-(`cdn.jsdelivr.net`), which is the only external network dependency this
-otherwise fully static, dependency-free site has.
+**Production setup (Render):**
+
+1. Create a database at [turso.tech](https://turso.tech) (free tier) and get
+   its connection URL and an auth token for it (`turso db show <name> --url`
+   and `turso db tokens create <name>`, or from their dashboard — this needs
+   to be a *database* auth token, not a general platform API key).
+2. In the Render dashboard for this service's Environment tab, set:
+   - `TURSO_DATABASE_URL` — the `libsql://...` URL from step 1
+   - `TURSO_AUTH_TOKEN` — the database auth token from step 1
+   - `JWT_SECRET` — any long random string (e.g. `openssl rand -base64 32`);
+     this signs session cookies, so treat it as a real secret
+3. Deploy. The server creates its `users` and `scenarios` tables automatically
+   on first boot — no manual SQL needed.
+
+None of these are committed to the repo (`render.yaml` just declares that
+they're expected — `sync: false` means "set this manually").
 
 ## Running it
 
-No build step, no server-side logic — it's a static site.
+```
+npm install
+npm start
+```
+
+then open `http://localhost:3000/`. Without `TURSO_DATABASE_URL` set, the
+server automatically falls back to a local SQLite file (`local-dev.db`,
+gitignored) — full accounts + scenario storage work immediately with no
+external service needed for local development. You do need `JWT_SECRET` set
+to *something* even locally (the server refuses to start without it), e.g.:
 
 ```
-python -m http.server 8000
+JWT_SECRET=dev-secret npm start
 ```
-
-then open `http://localhost:8000/`. (Or just open `index.html` directly in a browser.)
 
 ## Files
 
-- `index.html` — page structure
-- `styles.css` — styling
-- `data.js` — the eco-cost reference database (materials, processes, energy,
-  transport, end-of-life) and the two preset examples, with sourcing notes
-- `app.js` — calculator logic, rendering, and scenario persistence (Supabase
-  when signed in, `localStorage` otherwise)
-- `supabase-config.js` — your Supabase project URL + anon key (see "Accounts"
-  below); safe to leave blank
+- `public/index.html`, `public/styles.css`, `public/app.js` — the frontend
+  (served as static files by `server.js`)
+- `public/data.js` — the eco-cost reference database (materials, processes,
+  energy, transport, end-of-life) and the two preset examples, with sourcing notes
+- `server.js` — the Express app: serves the frontend, plus the `/api/*`
+  auth and scenarios endpoints
 
 ## About the data
 
-The eco-cost figures in `data.js` are based on Idematapp / ecocostsvalue.com
+The eco-cost figures in `public/data.js` are based on Idematapp / ecocostsvalue.com
 reference data (2020 excerpts), covering common materials, processes, energy, and
 transport modes. Use the "Custom line item" field in the calculator for any
 material, process, or cost not covered.
