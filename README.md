@@ -37,6 +37,19 @@ reference data. Every breakdown table has a CSV export button, and the Home
 overview card has a "Print / save as PDF" button that opens a dedicated report
 layout via the browser's native print dialog.
 
+## Currency
+
+Eco-cost is entered and stored in euros — that's the unit the reference data
+(Idematapp/ecocostsvalue.com) is in, and stays fixed regardless of display
+currency. A currency selector on the Home overview card (EUR, USD, GBP, JPY,
+CAD, AUD, CHF, CNY, INR) converts every on-screen and printed total using
+live rates from the free, keyless [exchangerate-api.com](https://www.exchangerate-api.com/)
+service, fetched on first use and cached in `localStorage` for 12 hours. If
+the rate lookup fails, it falls back to any previously cached rates, or to
+euros. The preset reference-total checks always stay in euros (they're
+validating against known source figures), and CSV exports stay in raw euros
+too, for data portability — only the on-screen/printed totals convert.
+
 ## Accounts
 
 Optional — the calculator works fully without signing in; saved scenarios

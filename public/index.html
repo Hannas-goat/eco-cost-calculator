@@ -51,6 +51,21 @@
     <section class="card" id="overview-card">
       <h2>Overview — all impact indicators</h2>
       <p class="hint">Live totals for the product you build below — one build feeds every tab on this site.</p>
+      <div class="currency-row">
+        <label for="currency-select">Eco-cost currency</label>
+        <select id="currency-select" onchange="changeCurrency()">
+          <option value="EUR">€ EUR — Euro</option>
+          <option value="USD">$ USD — US Dollar</option>
+          <option value="GBP">£ GBP — British Pound</option>
+          <option value="JPY">¥ JPY — Japanese Yen</option>
+          <option value="CAD">CA$ CAD — Canadian Dollar</option>
+          <option value="AUD">A$ AUD — Australian Dollar</option>
+          <option value="CHF">CHF — Swiss Franc</option>
+          <option value="CNY">¥ CNY — Chinese Yuan</option>
+          <option value="INR">₹ INR — Indian Rupee</option>
+        </select>
+        <span class="hint-inline" id="currency-note">All amounts entered and shown in euros.</span>
+      </div>
       <div class="stat-grid">
         <div class="stat stat-primary" id="stat-card-ecoCost"><span class="stat-label">Eco-cost</span><span class="stat-value" id="stat-ecoCost">€0.00</span></div>
         <div class="stat" id="stat-card-co2e"><span class="stat-label">Carbon footprint</span><span class="stat-value" id="stat-co2e">0.00 kg CO2e</span></div>

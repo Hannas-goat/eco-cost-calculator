@@ -20,9 +20,89 @@ function fmt(n, digits = 2) {
   return n.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
+// --- Currency: eco-cost is entered and stored in euros (that's the unit the
+// reference data is in); everywhere it's DISPLAYED can be converted to the
+// user's chosen currency. Rates come from a free, keyless, CORS-open API,
+// fetched on demand (not on every page load) and cached in localStorage. ---
+const CURRENCIES = {
+  EUR: { symbol: '€', digits: 2, name: 'Euro' },
+  USD: { symbol: '$', digits: 2, name: 'US Dollar' },
+  GBP: { symbol: '£', digits: 2, name: 'British Pound' },
+  JPY: { symbol: '¥', digits: 0, name: 'Japanese Yen' },
+  CAD: { symbol: 'CA$', digits: 2, name: 'Canadian Dollar' },
+  AUD: { symbol: 'A$', digits: 2, name: 'Australian Dollar' },
+  CHF: { symbol: 'CHF', digits: 2, name: 'Swiss Franc' },
+  CNY: { symbol: '¥', digits: 2, name: 'Chinese Yuan' },
+  INR: { symbol: '₹', digits: 2, name: 'Indian Rupee' },
+};
+const CURRENCY_KEY = 'ecocost_currency';
+const RATES_CACHE_KEY = 'ecocost_exchange_rates';
+const RATES_MAX_AGE_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+let currentCurrency = localStorage.getItem(CURRENCY_KEY) || 'EUR';
+let exchangeRates = { EUR: 1 };
+let ratesUpdatedAt = null;
+
+function loadCachedRates() {
+  try {
+    const cached = JSON.parse(localStorage.getItem(RATES_CACHE_KEY) || 'null');
+    if (cached && cached.rates && Date.now() - cached.fetchedAt < RATES_MAX_AGE_MS) {
+      exchangeRates = cached.rates;
+      ratesUpdatedAt = cached.sourceDate;
+      return true;
+    }
+  } catch (e) { /* ignore malformed cache */ }
+  return false;
+}
+
+async function ensureExchangeRates() {
+  if (currentCurrency === 'EUR') return true;
+  if (exchangeRates[currentCurrency]) return true;
+  if (loadCachedRates() && exchangeRates[currentCurrency]) return true;
+
+  const note = document.getElementById('currency-note');
+  if (note) note.textContent = 'Fetching exchange rates…';
+  try {
+    const res = await fetch('https://open.er-api.com/v6/latest/EUR');
+    const data = await res.json();
+    if (data.result !== 'success') throw new Error('rate lookup failed');
+    exchangeRates = data.rates;
+    ratesUpdatedAt = data.time_last_update_utc;
+    localStorage.setItem(RATES_CACHE_KEY, JSON.stringify({ rates: exchangeRates, fetchedAt: Date.now(), sourceDate: ratesUpdatedAt }));
+    return true;
+  } catch (e) {
+    if (loadCachedRates()) return true; // fall back to stale cache rather than failing outright
+    if (note) note.textContent = 'Could not fetch exchange rates — showing euros instead.';
+    currentCurrency = 'EUR';
+    return false;
+  }
+}
+
+async function changeCurrency() {
+  currentCurrency = document.getElementById('currency-select').value;
+  localStorage.setItem(CURRENCY_KEY, currentCurrency);
+  await ensureExchangeRates();
+  updateCurrencyNote();
+  renderAll();
+  await renderScenarios();
+}
+
+function updateCurrencyNote() {
+  const note = document.getElementById('currency-note');
+  if (!note) return;
+  note.textContent = currentCurrency === 'EUR'
+    ? 'All amounts entered and shown in euros.'
+    : `Amounts are entered in euros; totals shown in ${currentCurrency} using rates from ${ratesUpdatedAt || 'exchangerate-api.com'} (${CURRENCIES[currentCurrency].name}). Reference-total checks always stay in euros.`;
+}
+
 function fmtMetric(n, key) {
+  if (key === 'ecoCost') {
+    const cur = CURRENCIES[currentCurrency] || CURRENCIES.EUR;
+    const rate = exchangeRates[currentCurrency] || 1;
+    return `${cur.symbol}${fmt(n * rate, cur.digits)}`;
+  }
   const cfg = METRICS[key];
-  return cfg.prefix ? `€${fmt(n, cfg.digits)}` : `${fmt(n, cfg.digits)} ${cfg.unit}`;
+  return `${fmt(n, cfg.digits)} ${cfg.unit}`;
 }
 
 function findById(list, id) { return list.find(x => x.id === id); }
@@ -395,8 +475,9 @@ function renderPresetCheck(total) {
   const withinTolerance = diff <= 0.10;
   el.style.display = '';
   el.className = 'preset-check ' + (withinTolerance ? 'preset-check-ok' : 'preset-check-fail');
+  const currencyAside = currentCurrency !== 'EUR' ? ' (reference checks always stay in euros, regardless of the selected display currency)' : '';
   el.innerHTML = `${withinTolerance ? '✓' : '⚠'} Reference total for "${preset.name}": €${fmt(preset.expectedTotal)}.
-    This calculator computed €${fmt(total)} (difference €${fmt(diff)}, from source figures pre-rounded to 2 decimals).`;
+    This calculator computed €${fmt(total)} (difference €${fmt(diff)}, from source figures pre-rounded to 2 decimals)${currencyAside}.`;
 }
 
 // --- Best case / worst case: holding materials, transport, and end-of-life fixed,
@@ -878,6 +959,12 @@ async function renderScenarios() {
 
 // --- Init ---
 initDropdowns();
+document.getElementById('currency-select').value = currentCurrency;
+ensureExchangeRates().then(() => {
+  document.getElementById('currency-select').value = currentCurrency; // may have fallen back to EUR
+  updateCurrencyNote();
+  renderAll();
+});
 renderAll();
 renderAccountUI();
 refreshCurrentUser().then(renderScenarios);

@@ -151,6 +151,25 @@ main {
 .hint { color: var(--ink-soft); font-size: 13.5px; margin: 4px 0 12px; }
 .hint-inline { color: var(--ink-soft); font-size: 12.5px; font-weight: normal; }
 
+.currency-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px dashed var(--line);
+  font-size: 13px;
+}
+.currency-row label { font-weight: 600; color: var(--ink); }
+.currency-row select {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+  background: var(--card-bg);
+}
+
 .preset-row {
   display: flex;
   flex-wrap: wrap;
@@ -387,6 +406,7 @@ main {
 /* --- Print / "Save as PDF" report: hide chrome, show a clean data report --- */
 @media print {
   .tabs, .preset-row, .add-form, .btn-remove, .export-row, #part-form { display: none !important; }
+  .currency-row select { display: none; }
   .tab-panel { display: block !important; animation: none !important; }
   .card { box-shadow: none; border: 1px solid #999; break-inside: avoid; }
   body { background: #fff; }
