@@ -174,6 +174,42 @@ function clearProduct() {
   renderAll();
 }
 
+// Rate text for one metric, e.g. "€2.61/kg" or "11.9 kg CO2e/kg" — every line
+// item's detail text is built once per metric so each tab describes ITS OWN
+// rate, not always the eco-cost one.
+function fmtRate(value, metricKey, basis) {
+  const cfg = METRICS[metricKey];
+  return cfg.prefix ? `€${value}/${basis}` : `${value} ${cfg.unit}/${basis}`;
+}
+
+function partDetails(part, material, process, eol) {
+  const details = {};
+  for (const metricKey of Object.keys(METRICS)) {
+    const bits = [`${part.weight} kg × ${material.name} (${fmtRate(material[metricKey], metricKey, 'kg')})`];
+    if (process) bits.push(`+ ${process.name} (${fmtRate(process[metricKey], metricKey, 'kg')})`);
+    if (eol && eol[metricKey] !== 0) bits.push(`+ ${eol.name} (${fmtRate(eol[metricKey], metricKey, 'kg')})`);
+    details[metricKey] = bits.join(' ');
+  }
+  return details;
+}
+
+function assemblyDetails(assembly, energy, mj, kwh, weight) {
+  const details = {};
+  details.ecoCost = `${assembly.mjPerKg} MJ/kg × ${weight} kg = ${mj.toFixed(3)} MJ × ${energy.name} (${fmtRate(energy.ecoCost, 'ecoCost', 'MJ')})`;
+  for (const metricKey of ['co2e', 'water', 'energyIn']) {
+    details[metricKey] = `${assembly.mjPerKg} MJ/kg × ${weight} kg = ${kwh.toFixed(3)} kWh × ${energy.name} (${fmtRate(energy[metricKey], metricKey, 'kWh')})`;
+  }
+  return details;
+}
+
+function transportDetails(leg, transport) {
+  const details = {};
+  for (const metricKey of Object.keys(METRICS)) {
+    details[metricKey] = `${leg.tkm.toFixed(4)} tkm × ${fmtRate(transport[metricKey], metricKey, 'tkm')} (${leg.distanceKm} km)`;
+  }
+  return details;
+}
+
 // --- Calculation: every part/assembly/transport/custom line carries all four
 // indicators at once, computed in a single pass. ---
 function computeLineItems(p = product) {
@@ -185,12 +221,9 @@ function computeLineItems(p = product) {
     const eol = part.endOfLifeId ? findById(END_OF_LIFE, part.endOfLifeId) : null;
     const sumField = (key) =>
       part.weight * material[key] + (process ? part.weight * process[key] : 0) + (eol ? part.weight * eol[key] : 0);
-    const detailBits = [`${part.weight} kg × ${material.name} (€${material.ecoCost}/kg)`];
-    if (process) detailBits.push(`+ ${process.name} (€${process.ecoCost}/kg)`);
-    if (eol && eol.ecoCost !== 0) detailBits.push(`+ ${eol.name} (€${eol.ecoCost}/kg)`);
     items.push({
       label: part.name,
-      detail: detailBits.join(' '),
+      details: partDetails(part, material, process, eol),
       kind: 'part',
       ecoCost: sumField('ecoCost'),
       co2e: sumField('co2e'),
@@ -201,11 +234,12 @@ function computeLineItems(p = product) {
 
   if (p.assembly) {
     const energy = findById(ENERGY, p.assembly.energyId);
-    const mj = p.assembly.mjPerKg * totalPartsWeight(p);
+    const weight = totalPartsWeight(p);
+    const mj = p.assembly.mjPerKg * weight;
     const kwh = mj / 3.6;
     items.push({
       label: 'Assembly energy',
-      detail: `${p.assembly.mjPerKg} MJ/kg × ${totalPartsWeight(p)} kg = ${mj.toFixed(3)} MJ (${kwh.toFixed(3)} kWh) × ${energy.name}`,
+      details: assemblyDetails(p.assembly, energy, mj, kwh, weight),
       kind: 'assembly',
       ecoCost: mj * energy.ecoCost,
       co2e: kwh * energy.co2e,
@@ -218,7 +252,7 @@ function computeLineItems(p = product) {
     const transport = findById(TRANSPORT, leg.transportId);
     items.push({
       label: `Transport: ${transport.name}`,
-      detail: `${leg.tkm.toFixed(4)} tkm (${leg.distanceKm} km)`,
+      details: transportDetails(leg, transport),
       kind: 'transport',
       ecoCost: leg.tkm * transport.ecoCost,
       co2e: leg.tkm * transport.co2e,
@@ -230,7 +264,7 @@ function computeLineItems(p = product) {
   for (const custom of p.customLines) {
     items.push({
       label: custom.name,
-      detail: 'Custom line',
+      details: { ecoCost: 'Custom line', co2e: 'Custom line', water: 'Custom line', energyIn: 'Custom line' },
       kind: 'custom',
       ecoCost: custom.ecoCost || 0,
       co2e: custom.co2e || 0,
@@ -330,7 +364,7 @@ function renderBreakdown(items, metricKey, ids) {
   document.getElementById(ids.tbody).innerHTML = items.map(i => `
     <tr class="${i.label === hotspotLabel ? 'row-hotspot' : ''}">
       <td>${i.label}${i.label === hotspotLabel ? ' <span class="hotspot-badge">🔥 hotspot</span>' : ''}</td>
-      <td class="detail-cell">${i.detail}</td>
+      <td class="detail-cell">${i.details[metricKey]}</td>
       <td class="num">${fmtMetric(i[metricKey], metricKey)}</td>
     </tr>`).join('');
   document.getElementById(ids.total).textContent = fmtMetric(total, metricKey);
@@ -557,25 +591,25 @@ function downloadCsv(filename, csv) {
 const CSV_EXPORTERS = {
   eco: () => {
     const items = computeLineItems();
-    const rows = items.map(i => [i.label, i.detail, i.ecoCost.toFixed(2)]);
+    const rows = items.map(i => [i.label, i.details.ecoCost, i.ecoCost.toFixed(2)]);
     rows.push(['Total', '', items.reduce((s, i) => s + i.ecoCost, 0).toFixed(2)]);
     return csvFromRows(['Line item', 'Detail', 'Eco-cost (EUR)'], rows);
   },
   carbon: () => {
     const items = computeLineItems();
-    const rows = items.map(i => [i.label, i.detail, i.co2e.toFixed(2)]);
+    const rows = items.map(i => [i.label, i.details.co2e, i.co2e.toFixed(2)]);
     rows.push(['Total', '', items.reduce((s, i) => s + i.co2e, 0).toFixed(2)]);
     return csvFromRows(['Line item', 'Detail', 'kg CO2e'], rows);
   },
   water: () => {
     const items = computeLineItems();
-    const rows = items.map(i => [i.label, i.detail, i.water.toFixed(1)]);
+    const rows = items.map(i => [i.label, i.details.water, i.water.toFixed(1)]);
     rows.push(['Total', '', items.reduce((s, i) => s + i.water, 0).toFixed(1)]);
     return csvFromRows(['Line item', 'Detail', 'Water (L)'], rows);
   },
   energy: () => {
     const items = computeLineItems();
-    const rows = items.map(i => [i.label, i.detail, i.energyIn.toFixed(2)]);
+    const rows = items.map(i => [i.label, i.details.energyIn, i.energyIn.toFixed(2)]);
     rows.push(['Total', '', items.reduce((s, i) => s + i.energyIn, 0).toFixed(2)]);
     return csvFromRows(['Line item', 'Detail', 'Energy (kWh)'], rows);
   },
