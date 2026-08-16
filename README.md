@@ -39,16 +39,36 @@ layout via the browser's native print dialog.
 
 ## Currency
 
-Eco-cost is entered and stored in euros — that's the unit the reference data
-(Idematapp/ecocostsvalue.com) is in, and stays fixed regardless of display
-currency. A currency selector on the Home overview card (EUR, USD, GBP, JPY,
-CAD, AUD, CHF, CNY, INR) converts every on-screen and printed total using
-live rates from the free, keyless [exchangerate-api.com](https://www.exchangerate-api.com/)
-service, fetched on first use and cached in `localStorage` for 12 hours. If
-the rate lookup fails, it falls back to any previously cached rates, or to
-euros. The preset reference-total checks always stay in euros (they're
-validating against known source figures), and CSV exports stay in raw euros
-too, for data portability — only the on-screen/printed totals convert.
+Eco-cost is stored internally in euros — that's the unit the reference data
+(Idematapp/ecocostsvalue.com) is in — but everything you see or type follows
+one selected currency (EUR, USD, GBP, JPY, CAD, AUD, CHF, CNY, INR): material/
+process/energy/transport rate labels, the custom-line-item eco-cost input, and
+every total, using live rates from the free, keyless
+[exchangerate-api.com](https://www.exchangerate-api.com/) service, fetched on
+first use and cached in `localStorage` for 12 hours (falling back to any
+previously cached rates, or to euros, if the lookup fails). The preset
+reference-total checks always stay in euros (they're validating against known
+source figures), and CSV exports stay in raw euros too, for data portability.
+
+## Optimization hints
+
+Wherever a lower-impact alternative already exists in the reference data for
+a material, energy source, or transport mode you've used, a hint appears
+under that tab's hotspot chart (e.g. "switch material from X to Y → saves
+Z"), scoped to whichever indicator that tab is about. This deliberately
+doesn't cover processes or end-of-life treatments — neither is grouped by
+material compatibility in the data, so a generic "lower value" match there
+could suggest something physically nonsensical (e.g. an EoL option meant for
+plastic, applied to a metal part).
+
+## Regional coverage
+
+Beyond the three original Idematapp-sourced electricity entries, `data.js`
+includes additional regional electricity grids (US, Canada, Brazil, China,
+India, Australia) and transport modes (ocean freight, air freight, regional
+trucking) as a further estimate on the same "representative, not certified"
+basis as the rest of the carbon/water/energy dataset — see the comments in
+`data.js` for exactly how each figure was derived.
 
 ## Accounts
 

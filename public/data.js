@@ -74,18 +74,38 @@ const PROCESSES = [
 // co2e / water / energyIn here are per kWh delivered (not per MJ, unlike the other tables) —
 // energyIn is the cumulative primary energy input per kWh of electricity delivered
 // (reflects generation and transmission losses, so it is typically > 1).
+//
+// The first three entries are the original Idematapp-sourced figures. The regional grids
+// below them are a SEPARATE, additional estimate: co2e/water/energyIn are representative
+// literature grid-carbon-intensity figures (same "indicative, not certified" status as the
+// rest of the carbon/water/energy dataset — see the footer disclaimer); ecoCost for these
+// has no Idematapp source at all, so it's derived by scaling proportionally to co2e using
+// the ratio already implicit in the three original entries (~0.36 EUR per kg CO2e) — an
+// estimate on top of an estimate, included for regional coverage rather than precision.
 const ENERGY = [
   { id: 'elec-general', name: 'Electricity, general industry', ecoCost: 0.024, co2e: 0.35, water: 1.6, energyIn: 2.2 },
   { id: 'elec-industrial-west', name: 'Electricity, industrial (West Europe)', ecoCost: 0.028, co2e: 0.28, water: 1.4, energyIn: 2.0 },
   { id: 'elec-industrial-use', name: 'Electricity, industrial use', ecoCost: 0.023, co2e: 0.30, water: 1.5, energyIn: 2.1 },
+  { id: 'elec-us', name: 'Electricity, grid mix (United States)', ecoCost: 0.040, co2e: 0.40, water: 2.0, energyIn: 2.8 },
+  { id: 'elec-canada', name: 'Electricity, grid mix (Canada, hydro-heavy)', ecoCost: 0.013, co2e: 0.13, water: 0.65, energyIn: 0.91 },
+  { id: 'elec-brazil', name: 'Electricity, grid mix (Brazil, hydro-heavy)', ecoCost: 0.010, co2e: 0.10, water: 0.50, energyIn: 0.70 },
+  { id: 'elec-china', name: 'Electricity, grid mix (China, coal-heavy)', ecoCost: 0.058, co2e: 0.58, water: 2.90, energyIn: 4.06 },
+  { id: 'elec-india', name: 'Electricity, grid mix (India, coal-heavy)', ecoCost: 0.075, co2e: 0.75, water: 3.75, energyIn: 5.25 },
+  { id: 'elec-australia', name: 'Electricity, grid mix (Australia)', ecoCost: 0.068, co2e: 0.68, water: 3.40, energyIn: 4.76 },
 ];
 
 // Transport, euro per tonne-km (tkm) unless noted (page 34, "Transport, rail/road").
+// The regional/modal entries below "Truck + trailer, 24 tonnes" are the same kind of
+// additional, representative-not-certified estimate described above for ENERGY.
 const TRANSPORT = [
   { id: 'rail-eu', name: 'Train, freight (Europe)', ecoCost: 0.0053, co2e: 0.028, water: 0.05, energyIn: 0.15 },
   { id: 'rail-us', name: 'Train, freight, diesel (USA)', ecoCost: 0.0130, co2e: 0.021, water: 0.03, energyIn: 0.09 },
   { id: 'truck-container-28t', name: 'Truck + container, 28 tonnes', ecoCost: 0.027, co2e: 0.085, water: 0.08, energyIn: 0.35 },
   { id: 'truck-trailer-24t', name: 'Truck + trailer, 24 tonnes', ecoCost: 0.031, co2e: 0.095, water: 0.09, energyIn: 0.40 },
+  { id: 'ocean-container', name: 'Ocean freight, container ship', ecoCost: 0.0043, co2e: 0.012, water: 0.02, energyIn: 0.05 },
+  { id: 'air-cargo', name: 'Air freight, cargo aircraft', ecoCost: 0.22, co2e: 0.60, water: 1.20, energyIn: 2.50 },
+  { id: 'truck-north-america', name: 'Truck freight (North America)', ecoCost: 0.032, co2e: 0.090, water: 0.085, energyIn: 0.37 },
+  { id: 'truck-asia-pacific', name: 'Truck freight (Asia-Pacific)', ecoCost: 0.043, co2e: 0.120, water: 0.11, energyIn: 0.48 },
 ];
 
 // End-of-life treatment, euro per kg of material discarded ("waste treatment").

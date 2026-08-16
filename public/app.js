@@ -83,6 +83,7 @@ async function changeCurrency() {
   localStorage.setItem(CURRENCY_KEY, currentCurrency);
   await ensureExchangeRates();
   updateCurrencyNote();
+  refreshRateLabels();
   renderAll();
   await renderScenarios();
 }
@@ -92,7 +93,18 @@ function updateCurrencyNote() {
   if (!note) return;
   note.textContent = currentCurrency === 'EUR'
     ? 'All amounts entered and shown in euros.'
-    : `Amounts are entered in euros; totals shown in ${currentCurrency} using rates from ${ratesUpdatedAt || 'exchangerate-api.com'} (${CURRENCIES[currentCurrency].name}). Reference-total checks always stay in euros.`;
+    : `Every rate, input, and total on this page is shown in ${currentCurrency} (${CURRENCIES[currentCurrency].name}), using rates from ${ratesUpdatedAt || 'exchangerate-api.com'} — stored internally in euros so nothing is lost switching currencies. Reference-total checks always stay in euros, since they validate against known source figures. CSV exports also stay in euros, for portable raw data.`;
+}
+
+// A small per-unit rate (e.g. €0.0053/tkm) needs more precision than a total —
+// fixed-2-decimals would round small rates to zero. Trims trailing zeros naturally.
+// (Named distinctly from fmtRate(value, metricKey, basis) below, which formats a
+// detail-column rate by metric — a same-name collision here previously broke both.)
+function fmtCurrencyRate(eurPerUnit, unitLabel) {
+  const cur = CURRENCIES[currentCurrency] || CURRENCIES.EUR;
+  const rate = exchangeRates[currentCurrency] || 1;
+  const shown = (eurPerUnit * rate).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 5 });
+  return `${cur.symbol}${shown}/${unitLabel}`;
 }
 
 function fmtMetric(n, key) {
@@ -118,26 +130,44 @@ function showTab(name) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+// Rebuilds only the rate-labeled dropdowns (process/EoL/energy/transport), preserving
+// whatever's currently selected — used on init AND whenever currency changes. Deliberately
+// does NOT touch part-category/part-material, so switching currency never resets those.
+function refreshRateLabels() {
+  const processSelect = document.getElementById('part-process');
+  const prevProcess = processSelect.value;
+  processSelect.innerHTML = '<option value="">No processing</option>' +
+    PROCESSES.map(p => `<option value="${p.id}">${p.name} (${fmtCurrencyRate(p.ecoCost, 'kg')})</option>`).join('');
+  processSelect.value = prevProcess;
+
+  const eolSelect = document.getElementById('part-eol');
+  const prevEol = eolSelect.value;
+  eolSelect.innerHTML = END_OF_LIFE.map(e => `<option value="${e.id}">${e.name}${e.ecoCost ? ` (${fmtCurrencyRate(e.ecoCost, 'kg')})` : ''}</option>`).join('');
+  eolSelect.value = prevEol;
+
+  const energySelect = document.getElementById('assembly-energy');
+  const prevEnergy = energySelect.value;
+  energySelect.innerHTML = ENERGY.map(e => `<option value="${e.id}">${e.name} (${fmtCurrencyRate(e.ecoCost, 'MJ')})</option>`).join('');
+  energySelect.value = prevEnergy;
+
+  const transportSelect = document.getElementById('transport-mode');
+  const prevTransport = transportSelect.value;
+  transportSelect.innerHTML = TRANSPORT.map(t => `<option value="${t.id}">${t.name} (${fmtCurrencyRate(t.ecoCost, 'tkm')})</option>`).join('');
+  transportSelect.value = prevTransport;
+
+  updateCustomValuePlaceholder();
+}
+
 // --- Dropdown population ---
 function initDropdowns() {
   const categories = [...new Set(MATERIALS.map(m => m.category))];
   document.getElementById('part-category').innerHTML = categories.map(c => `<option value="${c}">${c}</option>`).join('');
   renderMaterialOptions();
 
-  const processSelect = document.getElementById('part-process');
-  processSelect.innerHTML = '<option value="">No processing</option>' +
-    PROCESSES.map(p => `<option value="${p.id}">${p.name} (€${p.ecoCost}/kg)</option>`).join('');
+  refreshRateLabels();
 
-  const eolSelect = document.getElementById('part-eol');
-  eolSelect.innerHTML = END_OF_LIFE.map(e => `<option value="${e.id}">${e.name}${e.ecoCost ? ` (€${e.ecoCost}/kg)` : ''}</option>`).join('');
-
-  const energySelect = document.getElementById('assembly-energy');
-  energySelect.innerHTML = ENERGY.map(e => `<option value="${e.id}">${e.name} (€${e.ecoCost}/MJ)</option>`).join('');
-
-  const transportSelect = document.getElementById('transport-mode');
-  transportSelect.innerHTML = TRANSPORT.map(t => `<option value="${t.id}">${t.name} (€${t.ecoCost}/tkm)</option>`).join('');
   document.getElementById('transport-distance').addEventListener('input', updateTransportPreview);
-  transportSelect.addEventListener('change', updateTransportPreview);
+  document.getElementById('transport-mode').addEventListener('change', updateTransportPreview);
   updateTransportPreview();
 }
 
@@ -212,7 +242,9 @@ function addTransport() {
 
 function addCustomLine() {
   const name = document.getElementById('custom-name').value.trim();
-  const ecoCost = Number(document.getElementById('custom-value').value) || 0;
+  // Typed in the currently selected currency; stored internally in euros, like everything else.
+  const enteredValue = Number(document.getElementById('custom-value').value) || 0;
+  const ecoCost = enteredValue / (exchangeRates[currentCurrency] || 1);
   const co2e = Number(document.getElementById('custom-co2e').value) || 0;
   const water = Number(document.getElementById('custom-water').value) || 0;
   const energyIn = Number(document.getElementById('custom-energy').value) || 0;
@@ -420,8 +452,15 @@ function renderCustom() {
   const el = document.getElementById('custom-list');
   el.innerHTML = product.customLines.length
     ? product.customLines.map(c => lineItemRow('custom', c.id, c.name,
-        `€${fmt(c.ecoCost)} · ${fmt(c.co2e)} kg CO2e · ${fmt(c.water, 1)} L · ${fmt(c.energyIn)} kWh`)).join('')
+        `${fmtMetric(c.ecoCost, 'ecoCost')} · ${fmt(c.co2e)} kg CO2e · ${fmt(c.water, 1)} L · ${fmt(c.energyIn)} kWh`)).join('')
     : '<p class="hint">No custom lines yet.</p>';
+}
+
+// Custom-line eco-cost placeholder follows the selected currency, so the input itself
+// never shows a euro label when a different currency is active.
+function updateCustomValuePlaceholder() {
+  const input = document.getElementById('custom-value');
+  if (input) input.placeholder = `Eco-cost (${currentCurrency === 'EUR' ? 'euros' : currentCurrency})`;
 }
 
 // --- Shared breakdown table + hotspot chart renderer, reused by every metric tab ---
@@ -514,6 +553,67 @@ function renderRangeMeter(metricKey, items, total) {
   const span = worst - best;
   const pct = span > 0 ? Math.min(100, Math.max(0, ((total - best) / span) * 100)) : 0;
   document.getElementById(ids.marker).style.left = `${pct}%`;
+}
+
+// --- Optimization hints: flag when a lower-impact alternative already exists in the
+// reference data, for whichever metric the current tab is about. Grounded in the app's
+// own data (no invented numbers) — extends the same "higher-recycled alternative" idea
+// already used on the Recycled Content tab to materials, energy, and transport. Deliberately
+// skips processes and end-of-life: neither is grouped by material compatibility in the data
+// model, so a generic "lower value" match could suggest something physically nonsensical
+// (e.g. an incineration EoL option meant for plastic, applied to a metal part).
+const HINT_IDS = { ecoCost: 'eco-hints', co2e: 'carbon-hints', water: 'water-hints', energyIn: 'energy-hints' };
+
+function materialBaseName(name) { return name.split(' ')[0]; }
+
+function bestAlternative(list, current, metricKey, sameGroup) {
+  const candidates = list.filter(x => x.id !== current.id && x[metricKey] < current[metricKey] && (!sameGroup || sameGroup(x)));
+  if (!candidates.length) return null;
+  return candidates.reduce((best, x) => (x[metricKey] < best[metricKey] ? x : best));
+}
+
+function computeOptimizationHints(metricKey) {
+  const hints = [];
+
+  for (const part of product.parts) {
+    const material = findById(MATERIALS, part.materialId);
+    const baseName = materialBaseName(material.name);
+    const alt = bestAlternative(MATERIALS, material, metricKey, m => materialBaseName(m.name) === baseName);
+    if (alt) {
+      const saved = (material[metricKey] - alt[metricKey]) * part.weight;
+      hints.push(`<strong>${part.name}:</strong> switch material from "${material.name}" to "${alt.name}" → saves ${fmtMetric(saved, metricKey)}`);
+    }
+  }
+
+  if (product.assembly) {
+    const energy = findById(ENERGY, product.assembly.energyId);
+    const alt = bestAlternative(ENERGY, energy, metricKey);
+    if (alt) {
+      const kwh = (product.assembly.mjPerKg * totalPartsWeight()) / 3.6;
+      const saved = (energy[metricKey] - alt[metricKey]) * kwh;
+      hints.push(`<strong>Assembly energy:</strong> switch from "${energy.name}" to "${alt.name}" → saves ${fmtMetric(saved, metricKey)}`);
+    }
+  }
+
+  for (const leg of product.transportLegs) {
+    const transport = findById(TRANSPORT, leg.transportId);
+    const alt = bestAlternative(TRANSPORT, transport, metricKey);
+    if (alt) {
+      const saved = (transport[metricKey] - alt[metricKey]) * leg.tkm;
+      hints.push(`<strong>Transport (${transport.name}):</strong> switch to "${alt.name}" → saves ${fmtMetric(saved, metricKey)}`);
+    }
+  }
+
+  return hints;
+}
+
+function renderOptimizationHints(metricKey) {
+  const el = document.getElementById(HINT_IDS[metricKey]);
+  if (!el) return;
+  const hints = computeOptimizationHints(metricKey);
+  el.innerHTML = hints.length
+    ? `<strong>Lower-impact alternatives available in your reference data:</strong><ul>${hints.map(h => `<li>${h}</li>`).join('')}</ul>`
+    : '';
 }
 
 // --- Recycled content: derived view of Home's parts (no separate entry form) ---
@@ -739,6 +839,11 @@ function renderAll() {
   renderRangeMeter('water', items, waterTotal);
   renderRangeMeter('energyIn', items, energyInTotal);
 
+  renderOptimizationHints('ecoCost');
+  renderOptimizationHints('co2e');
+  renderOptimizationHints('water');
+  renderOptimizationHints('energyIn');
+
   renderRecycledTab();
   renderSensitivityOptions();
   document.getElementById('sens-table').style.display = 'none';
@@ -963,6 +1068,7 @@ document.getElementById('currency-select').value = currentCurrency;
 ensureExchangeRates().then(() => {
   document.getElementById('currency-select').value = currentCurrency; // may have fallen back to EUR
   updateCurrencyNote();
+  refreshRateLabels();
   renderAll();
 });
 renderAll();
