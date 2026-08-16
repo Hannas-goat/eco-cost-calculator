@@ -37,6 +37,26 @@ reference data. Every breakdown table has a CSV export button, and the Home
 overview card has a "Print / save as PDF" button that opens a dedicated report
 layout via the browser's native print dialog.
 
+## Accounts
+
+Optional — the calculator works fully without one; saved scenarios just stay
+in the current browser's `localStorage`. To let people sign in and access
+their saved builds from any device:
+
+1. Create a free project at [supabase.com](https://supabase.com).
+2. In the SQL Editor, create the `scenarios` table and its row-level-security
+   policies (see the SQL in this repo's setup notes / commit history for
+   `supabase-config.js` — it ensures each user can only ever see their own rows).
+3. Fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `supabase-config.js` from
+   your project's Settings → API page. The anon key is meant to be public —
+   access control comes from the RLS policies, not from hiding this key.
+
+Until both values are filled in, the Account section on Home shows "not
+configured" and everything else works exactly as before — nothing else in the
+app depends on this being set up. The Supabase JS client loads from a CDN
+(`cdn.jsdelivr.net`), which is the only external network dependency this
+otherwise fully static, dependency-free site has.
+
 ## Running it
 
 No build step, no server-side logic — it's a static site.
@@ -53,7 +73,10 @@ then open `http://localhost:8000/`. (Or just open `index.html` directly in a bro
 - `styles.css` — styling
 - `data.js` — the eco-cost reference database (materials, processes, energy,
   transport, end-of-life) and the two preset examples, with sourcing notes
-- `app.js` — calculator logic, rendering, and scenario persistence (localStorage)
+- `app.js` — calculator logic, rendering, and scenario persistence (Supabase
+  when signed in, `localStorage` otherwise)
+- `supabase-config.js` — your Supabase project URL + anon key (see "Accounts"
+  below); safe to leave blank
 
 ## About the data
 

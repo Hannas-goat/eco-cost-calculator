@@ -27,6 +27,30 @@
   <!-- ===== HOME ===== -->
   <section id="tab-home" class="tab-panel">
 
+    <section class="card" id="account-card" style="display:none;">
+      <h2>Account</h2>
+      <div id="account-not-configured" class="hint" style="display:none;">
+        Accounts aren't set up for this site yet — see <code>supabase-config.js</code>. Your builds still save in this browser either way.
+      </div>
+      <div id="account-signed-out">
+        <p class="hint">Sign in to save your builds to your account and access them from any device. Without an account, builds are saved only in this browser.</p>
+        <form class="add-form" onsubmit="return false;">
+          <input type="email" id="auth-email" placeholder="Email" autocomplete="email">
+          <input type="password" id="auth-password" placeholder="Password (min 6 characters)" autocomplete="current-password">
+          <button type="button" class="btn-primary" onclick="authSignUp()">Sign up →</button>
+          <button type="button" class="btn-secondary" onclick="authLogIn()">Log in</button>
+        </form>
+        <div id="auth-message" class="hint"></div>
+      </div>
+      <div id="account-signed-in" style="display:none;">
+        <p class="hint">Signed in as <strong id="auth-user-email"></strong>. Your saved builds below are stored on your account.</p>
+        <div id="auth-import-row" style="display:none;" class="export-row">
+          <button type="button" class="btn-secondary" onclick="importLocalScenarios()">⬆ Import builds saved in this browser into my account</button>
+        </div>
+        <button type="button" class="btn-secondary" onclick="authLogOut()">Log out</button>
+      </div>
+    </section>
+
     <section class="card" id="overview-card">
       <h2>Overview — all impact indicators</h2>
       <p class="hint">Live totals for the product you build below — one build feeds every tab on this site.</p>
@@ -121,7 +145,7 @@
 
     <section class="card" id="scenarios-card">
       <h2>3. Save &amp; compare scenarios</h2>
-      <p class="hint">Save the current product as a named scenario (e.g. "Base case", "Recycled aluminium body"), then compare every indicator side by side to see which design choices reduce environmental impact most.</p>
+      <p class="hint">Save the current product as a named scenario (e.g. "Base case", "Recycled aluminium body"), then compare every indicator side by side to see which design choices reduce environmental impact most. <span id="scenarios-storage-note"></span></p>
       <form class="add-form" onsubmit="return false;">
         <input type="text" id="scenario-name" placeholder="Scenario name">
         <button type="button" class="btn-primary" onclick="saveScenario()">Save current product as scenario →</button>
@@ -287,6 +311,8 @@
   </details>
 </footer>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="supabase-config.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
 </body>

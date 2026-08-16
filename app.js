@@ -688,38 +688,125 @@ function loadPreset(key) {
   showTab('home');
 }
 
-// --- Scenarios (localStorage) ---
-function loadScenarios() {
+// --- Account: Supabase auth (email/password), gracefully disabled if unconfigured ---
+// `SUPABASE_URL` / `SUPABASE_ANON_KEY` come from supabase-config.js, loaded before this file.
+// Guarded against the CDN failing to load too, so a network hiccup on a third-party
+// script disables accounts only — it must never take down the rest of the calculator.
+let supabaseClient = null;
+try {
+  if (typeof SUPABASE_URL === 'string' && SUPABASE_URL && typeof SUPABASE_ANON_KEY === 'string' && SUPABASE_ANON_KEY && typeof supabase !== 'undefined') {
+    supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  }
+} catch (e) {
+  supabaseClient = null;
+}
+const supabaseConfigured = supabaseClient !== null;
+let currentUser = null; // Supabase auth user object, or null when signed out / not configured
+
+function renderAccountUI() {
+  document.getElementById('account-card').style.display = '';
+  document.getElementById('account-not-configured').style.display = supabaseConfigured ? 'none' : '';
+  document.getElementById('account-signed-out').style.display = (supabaseConfigured && !currentUser) ? '' : 'none';
+  document.getElementById('account-signed-in').style.display = (supabaseConfigured && currentUser) ? '' : 'none';
+  if (currentUser) document.getElementById('auth-user-email').textContent = currentUser.email;
+
+  const hasLocalScenarios = loadLocalScenarios().length > 0;
+  document.getElementById('auth-import-row').style.display = (currentUser && hasLocalScenarios) ? '' : 'none';
+
+  document.getElementById('scenarios-storage-note').textContent = !supabaseConfigured
+    ? '(saved only in this browser)'
+    : currentUser ? '(saved to your account)' : '(saved only in this browser — sign in above to save to your account)';
+}
+
+async function authSignUp() {
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const msg = document.getElementById('auth-message');
+  if (!email || password.length < 6) { msg.textContent = 'Enter an email and a password of at least 6 characters.'; return; }
+  msg.textContent = 'Signing up…';
+  const { error } = await supabaseClient.auth.signUp({ email, password });
+  msg.textContent = error ? error.message : 'Check your email to confirm your account, then log in.';
+}
+
+async function authLogIn() {
+  const email = document.getElementById('auth-email').value.trim();
+  const password = document.getElementById('auth-password').value;
+  const msg = document.getElementById('auth-message');
+  if (!email || !password) { msg.textContent = 'Enter your email and password.'; return; }
+  msg.textContent = 'Logging in…';
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) msg.textContent = error.message;
+}
+
+async function authLogOut() {
+  await supabaseClient.auth.signOut();
+}
+
+async function importLocalScenarios() {
+  if (!currentUser) return;
+  const local = loadLocalScenarios();
+  for (const s of local) {
+    await supabaseClient.from('scenarios').insert({
+      user_id: currentUser.id, name: s.name, totals: scenarioTotals(s), recycled_pct: s.recycledPct || 0, product: s.product,
+    });
+  }
+  saveLocalScenarios([]);
+  await renderScenarios();
+  renderAccountUI();
+}
+
+// --- Scenarios: Supabase when signed in, localStorage otherwise ---
+function loadLocalScenarios() {
   try { return JSON.parse(localStorage.getItem(SCENARIOS_KEY) || '[]'); } catch (e) { return []; }
 }
 
-function saveScenarios(scenarios) {
+function saveLocalScenarios(scenarios) {
   localStorage.setItem(SCENARIOS_KEY, JSON.stringify(scenarios));
 }
 
-function saveScenario() {
+async function saveScenario() {
   const name = document.getElementById('scenario-name').value.trim();
   if (!name) { alert('Name this scenario first.'); return; }
   const items = computeLineItems();
   if (!items.length) { alert('Build a product before saving it as a scenario.'); return; }
   const totals = totalsFor(items);
   const recycledPct = computeRecycledPct();
-  const scenarios = loadScenarios();
-  scenarios.push({ id: Date.now(), name, totals, recycledPct, product: JSON.parse(JSON.stringify(product)) });
-  saveScenarios(scenarios);
+
+  if (currentUser) {
+    const { error } = await supabaseClient.from('scenarios').insert({
+      user_id: currentUser.id, name, totals, recycled_pct: recycledPct, product,
+    });
+    if (error) { alert('Could not save to your account: ' + error.message); return; }
+  } else {
+    const scenarios = loadLocalScenarios();
+    scenarios.push({ id: String(Date.now()), name, totals, recycledPct, product: JSON.parse(JSON.stringify(product)) });
+    saveLocalScenarios(scenarios);
+  }
   document.getElementById('scenario-name').value = '';
-  renderScenarios();
+  await renderScenarios();
 }
 
-function deleteScenario(id) {
-  saveScenarios(loadScenarios().filter(s => s.id !== id));
-  renderScenarios();
+async function deleteScenario(id) {
+  if (currentUser) {
+    await supabaseClient.from('scenarios').delete().eq('id', id);
+  } else {
+    saveLocalScenarios(loadLocalScenarios().filter(s => s.id !== id));
+  }
+  await renderScenarios();
 }
 
-function loadScenario(id) {
-  const scenario = loadScenarios().find(s => s.id === id);
-  if (!scenario) return;
-  product = scenario.product;
+async function loadScenario(id) {
+  let loadedProduct;
+  if (currentUser) {
+    const { data } = await supabaseClient.from('scenarios').select('product').eq('id', id).single();
+    if (!data) return;
+    loadedProduct = data.product;
+  } else {
+    const scenario = loadLocalScenarios().find(s => s.id === id);
+    if (!scenario) return;
+    loadedProduct = scenario.product;
+  }
+  product = loadedProduct;
   nextLineId = Math.max(1, ...[...product.parts, ...product.transportLegs, ...product.customLines].map(x => x.id + 1));
   activePresetKey = null;
   renderAll();
@@ -730,8 +817,15 @@ function scenarioTotals(s) {
   return s.totals || { ecoCost: s.total || 0, co2e: 0, water: 0, energyIn: 0 };
 }
 
-function renderScenarios() {
-  const scenarios = loadScenarios();
+async function renderScenarios() {
+  let scenarios;
+  if (currentUser) {
+    const { data, error } = await supabaseClient.from('scenarios').select('*').order('created_at', { ascending: true });
+    scenarios = error ? [] : data.map(row => ({ id: row.id, name: row.name, totals: row.totals, recycledPct: row.recycled_pct }));
+  } else {
+    scenarios = loadLocalScenarios().map(s => ({ id: s.id, name: s.name, totals: scenarioTotals(s), recycledPct: s.recycledPct || 0 }));
+  }
+
   const empty = document.getElementById('scenarios-empty');
   const table = document.getElementById('scenarios-table');
   const chart = document.getElementById('scenarios-chart');
@@ -744,22 +838,20 @@ function renderScenarios() {
   empty.style.display = 'none';
   table.style.display = '';
 
-  document.getElementById('scenarios-tbody').innerHTML = scenarios.map(s => {
-    const totals = scenarioTotals(s);
-    return `<tr>
-      <td><a href="#" onclick="loadScenario(${s.id}); return false;">${s.name}</a></td>
-      <td class="num">${fmtMetric(totals.ecoCost, 'ecoCost')}</td>
-      <td class="num">${fmtMetric(totals.co2e, 'co2e')}</td>
-      <td class="num">${fmtMetric(totals.water, 'water')}</td>
-      <td class="num">${fmtMetric(totals.energyIn, 'energyIn')}</td>
-      <td class="num">${fmt(s.recycledPct || 0, 1)}%</td>
-      <td><button type="button" class="btn-remove" onclick="deleteScenario(${s.id})">✕</button></td>
-    </tr>`;
-  }).join('');
+  document.getElementById('scenarios-tbody').innerHTML = scenarios.map(s => `
+    <tr>
+      <td><a href="#" onclick="loadScenario('${s.id}'); return false;">${s.name}</a></td>
+      <td class="num">${fmtMetric(s.totals.ecoCost, 'ecoCost')}</td>
+      <td class="num">${fmtMetric(s.totals.co2e, 'co2e')}</td>
+      <td class="num">${fmtMetric(s.totals.water, 'water')}</td>
+      <td class="num">${fmtMetric(s.totals.energyIn, 'energyIn')}</td>
+      <td class="num">${fmt(s.recycledPct, 1)}%</td>
+      <td><button type="button" class="btn-remove" onclick="deleteScenario('${s.id}')">✕</button></td>
+    </tr>`).join('');
 
-  const maxAbs = Math.max(...scenarios.map(s => Math.abs(scenarioTotals(s).ecoCost)), 0.0001);
+  const maxAbs = Math.max(...scenarios.map(s => Math.abs(s.totals.ecoCost)), 0.0001);
   chart.innerHTML = scenarios.map(s => {
-    const total = scenarioTotals(s).ecoCost;
+    const total = s.totals.ecoCost;
     const pct = (Math.abs(total) / maxAbs) * 100;
     const barClass = total < 0 ? 'bar-credit' : 'bar-burden';
     return `<div class="chart-row">
@@ -773,5 +865,14 @@ function renderScenarios() {
 // --- Init ---
 initDropdowns();
 renderAll();
-renderScenarios();
+renderAccountUI();
+if (supabaseConfigured) {
+  supabaseClient.auth.onAuthStateChange((event, session) => {
+    currentUser = session ? session.user : null;
+    renderAccountUI();
+    renderScenarios();
+  });
+} else {
+  renderScenarios();
+}
 showTab('home');
