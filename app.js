@@ -1,11 +1,9 @@
 // --- App state ---
-// `product` (Home) is the eco-cost builder — unchanged, single-indicator, drives only Home.
+// One unified product drives every tab. Add a part once on Home and eco-cost,
+// carbon, water, energy, and recycled content all compute from it — Carbon /
+// Water / Energy / Recycled tabs are read-only breakdown views of this same
+// product, not separate data-entry tools.
 let product = { parts: [], assembly: null, transportLegs: [], customLines: [] };
-// The 4 other tabs are standalone calculators with their own state, independent of `product`.
-// Carbon / Water / Energy share one list (energyUsageEntries) since all three are the same
-// "energy source x kWh" input, just read out as a different factor.
-let energyUsageEntries = []; // { id, energyId, kwh }
-let recycledEntries = []; // { id, materialId, weight }
 let nextLineId = 1;
 let activePresetKey = null; // set when a preset is loaded, so we can show the validation check
 
@@ -41,13 +39,9 @@ function showTab(name) {
 }
 
 // --- Dropdown population ---
-function populateSelect(selectEl, options, valueKey, labelFn) {
-  selectEl.innerHTML = options.map(o => `<option value="${o[valueKey]}">${labelFn(o)}</option>`).join('');
-}
-
 function initDropdowns() {
   const categories = [...new Set(MATERIALS.map(m => m.category))];
-  populateSelect(document.getElementById('part-category'), categories.map(c => ({ id: c })), 'id', c => c.id);
+  document.getElementById('part-category').innerHTML = categories.map(c => `<option value="${c}">${c}</option>`).join('');
   renderMaterialOptions();
 
   const processSelect = document.getElementById('part-process');
@@ -57,40 +51,39 @@ function initDropdowns() {
   const eolSelect = document.getElementById('part-eol');
   eolSelect.innerHTML = END_OF_LIFE.map(e => `<option value="${e.id}">${e.name}${e.ecoCost ? ` (€${e.ecoCost}/kg)` : ''}</option>`).join('');
 
-  const energyOptionsHtml = ENERGY.map(e => `<option value="${e.id}">${e.name}</option>`).join('');
-  document.getElementById('assembly-energy').innerHTML = ENERGY.map(e => `<option value="${e.id}">${e.name} (€${e.ecoCost}/MJ)</option>`).join('');
-  document.getElementById('carbon-energy-id').innerHTML = energyOptionsHtml;
-  document.getElementById('water-energy-id').innerHTML = energyOptionsHtml;
-  document.getElementById('energy-energy-id').innerHTML = energyOptionsHtml;
+  const energySelect = document.getElementById('assembly-energy');
+  energySelect.innerHTML = ENERGY.map(e => `<option value="${e.id}">${e.name} (€${e.ecoCost}/MJ)</option>`).join('');
 
   const transportSelect = document.getElementById('transport-mode');
   transportSelect.innerHTML = TRANSPORT.map(t => `<option value="${t.id}">${t.name} (€${t.ecoCost}/tkm)</option>`).join('');
   document.getElementById('transport-distance').addEventListener('input', updateTransportPreview);
   transportSelect.addEventListener('change', updateTransportPreview);
   updateTransportPreview();
-
-  document.getElementById('recycled-material').innerHTML = MATERIALS
-    .map(m => `<option value="${m.id}">${m.category} — ${m.name} (${m.recycledPct}% recycled)</option>`).join('');
 }
 
+// Searchable material combobox: a text input + <datalist>, scoped to the chosen
+// category, so users can type "Alu..." instead of scanning a long dropdown.
 function renderMaterialOptions() {
   const category = document.getElementById('part-category').value;
   const inCategory = MATERIALS.filter(m => m.category === category);
-  populateSelect(document.getElementById('part-material'), inCategory, 'id', m => `${m.name} (€${m.ecoCost}/kg)`);
+  document.getElementById('material-datalist').innerHTML =
+    inCategory.map(m => `<option value="${m.name}">`).join('');
+  document.getElementById('part-material').value = '';
 }
 
-// --- Home: adding line items (eco-cost only) ---
+// --- Adding line items ---
 function addPart() {
   const name = document.getElementById('part-name').value.trim();
-  const materialId = document.getElementById('part-material').value;
+  const materialName = document.getElementById('part-material').value.trim();
+  const material = MATERIALS.find(m => m.name === materialName);
   const weight = Number(document.getElementById('part-weight').value);
   const processId = document.getElementById('part-process').value || null;
   const endOfLifeId = document.getElementById('part-eol').value || 'none';
-  if (!name || !materialId || !weight || weight <= 0) {
-    alert('Give the part a name, a material, and a positive weight.');
+  if (!name || !material || !weight || weight <= 0) {
+    alert('Give the part a name, pick a material from the list (type to search), and a positive weight.');
     return;
   }
-  product.parts.push({ id: nextLineId++, name, materialId, weight, processId, endOfLifeId });
+  product.parts.push({ id: nextLineId++, name, materialId: material.id, weight, processId, endOfLifeId });
   document.getElementById('part-form').reset();
   renderMaterialOptions();
   activePresetKey = null;
@@ -139,14 +132,20 @@ function addTransport() {
 
 function addCustomLine() {
   const name = document.getElementById('custom-name').value.trim();
-  const value = Number(document.getElementById('custom-value').value);
-  if (!name || Number.isNaN(value)) {
-    alert('Give the custom line a description and a euro value.');
+  const ecoCost = Number(document.getElementById('custom-value').value) || 0;
+  const co2e = Number(document.getElementById('custom-co2e').value) || 0;
+  const water = Number(document.getElementById('custom-water').value) || 0;
+  const energyIn = Number(document.getElementById('custom-energy').value) || 0;
+  if (!name || (!ecoCost && !co2e && !water && !energyIn)) {
+    alert('Give the custom line a description and at least one value.');
     return;
   }
-  product.customLines.push({ id: nextLineId++, name, ecoCost: value });
+  product.customLines.push({ id: nextLineId++, name, ecoCost, co2e, water, energyIn });
   document.getElementById('custom-name').value = '';
   document.getElementById('custom-value').value = '';
+  document.getElementById('custom-co2e').value = '';
+  document.getElementById('custom-water').value = '';
+  document.getElementById('custom-energy').value = '';
   activePresetKey = null;
   renderAll();
 }
@@ -155,8 +154,6 @@ function removeLine(kind, id) {
   if (kind === 'part') product.parts = product.parts.filter(p => p.id !== id);
   if (kind === 'transport') product.transportLegs = product.transportLegs.filter(t => t.id !== id);
   if (kind === 'custom') product.customLines = product.customLines.filter(c => c.id !== id);
-  if (kind === 'energyUsage') energyUsageEntries = energyUsageEntries.filter(e => e.id !== id);
-  if (kind === 'recycledEntry') recycledEntries = recycledEntries.filter(r => r.id !== id);
   activePresetKey = null;
   renderAll();
 }
@@ -177,7 +174,8 @@ function clearProduct() {
   renderAll();
 }
 
-// --- Home: calculation (eco-cost only) ---
+// --- Calculation: every part/assembly/transport/custom line carries all four
+// indicators at once, computed in a single pass. ---
 function computeLineItems(p = product) {
   const items = [];
 
@@ -185,28 +183,34 @@ function computeLineItems(p = product) {
     const material = findById(MATERIALS, part.materialId);
     const process = part.processId ? findById(PROCESSES, part.processId) : null;
     const eol = part.endOfLifeId ? findById(END_OF_LIFE, part.endOfLifeId) : null;
-    const materialCost = part.weight * material.ecoCost;
-    const processCost = process ? part.weight * process.ecoCost : 0;
-    const eolCost = eol ? part.weight * eol.ecoCost : 0;
+    const sumField = (key) =>
+      part.weight * material[key] + (process ? part.weight * process[key] : 0) + (eol ? part.weight * eol[key] : 0);
     const detailBits = [`${part.weight} kg × ${material.name} (€${material.ecoCost}/kg)`];
     if (process) detailBits.push(`+ ${process.name} (€${process.ecoCost}/kg)`);
     if (eol && eol.ecoCost !== 0) detailBits.push(`+ ${eol.name} (€${eol.ecoCost}/kg)`);
     items.push({
       label: part.name,
       detail: detailBits.join(' '),
-      ecoCost: materialCost + processCost + eolCost,
       kind: 'part',
+      ecoCost: sumField('ecoCost'),
+      co2e: sumField('co2e'),
+      water: sumField('water'),
+      energyIn: sumField('energyIn'),
     });
   }
 
   if (p.assembly) {
     const energy = findById(ENERGY, p.assembly.energyId);
     const mj = p.assembly.mjPerKg * totalPartsWeight(p);
+    const kwh = mj / 3.6;
     items.push({
       label: 'Assembly energy',
-      detail: `${p.assembly.mjPerKg} MJ/kg × ${totalPartsWeight(p)} kg = ${mj.toFixed(3)} MJ × ${energy.name} (€${energy.ecoCost}/MJ)`,
-      ecoCost: mj * energy.ecoCost,
+      detail: `${p.assembly.mjPerKg} MJ/kg × ${totalPartsWeight(p)} kg = ${mj.toFixed(3)} MJ (${kwh.toFixed(3)} kWh) × ${energy.name}`,
       kind: 'assembly',
+      ecoCost: mj * energy.ecoCost,
+      co2e: kwh * energy.co2e,
+      water: kwh * energy.water,
+      energyIn: kwh * energy.energyIn,
     });
   }
 
@@ -214,20 +218,51 @@ function computeLineItems(p = product) {
     const transport = findById(TRANSPORT, leg.transportId);
     items.push({
       label: `Transport: ${transport.name}`,
-      detail: `${leg.tkm.toFixed(4)} tkm × €${transport.ecoCost}/tkm (${leg.distanceKm} km)`,
-      ecoCost: leg.tkm * transport.ecoCost,
+      detail: `${leg.tkm.toFixed(4)} tkm (${leg.distanceKm} km)`,
       kind: 'transport',
+      ecoCost: leg.tkm * transport.ecoCost,
+      co2e: leg.tkm * transport.co2e,
+      water: leg.tkm * transport.water,
+      energyIn: leg.tkm * transport.energyIn,
     });
   }
 
   for (const custom of p.customLines) {
-    items.push({ label: custom.name, detail: 'Custom eco-cost', ecoCost: custom.ecoCost, kind: 'custom' });
+    items.push({
+      label: custom.name,
+      detail: 'Custom line',
+      kind: 'custom',
+      ecoCost: custom.ecoCost || 0,
+      co2e: custom.co2e || 0,
+      water: custom.water || 0,
+      energyIn: custom.energyIn || 0,
+    });
   }
 
   return items;
 }
 
-// --- Home: rendering builder ---
+function totalsFor(items) {
+  return {
+    ecoCost: items.reduce((s, i) => s + i.ecoCost, 0),
+    co2e: items.reduce((s, i) => s + i.co2e, 0),
+    water: items.reduce((s, i) => s + i.water, 0),
+    energyIn: items.reduce((s, i) => s + i.energyIn, 0),
+  };
+}
+
+function computeRecycledPct(p = product) {
+  let totalWeight = 0;
+  let recycledWeight = 0;
+  for (const part of p.parts) {
+    const material = findById(MATERIALS, part.materialId);
+    totalWeight += part.weight;
+    recycledWeight += part.weight * (material.recycledPct / 100);
+  }
+  return totalWeight > 0 ? (recycledWeight / totalWeight) * 100 : 0;
+}
+
+// --- Rendering: builder (Home only) ---
 function lineItemRow(kind, id, label, detail) {
   return `<div class="line-item">
     <span class="line-item-label">${label}</span>
@@ -270,7 +305,8 @@ function renderTransport() {
 function renderCustom() {
   const el = document.getElementById('custom-list');
   el.innerHTML = product.customLines.length
-    ? product.customLines.map(c => lineItemRow('custom', c.id, c.name, `€${fmt(c.ecoCost)}`)).join('')
+    ? product.customLines.map(c => lineItemRow('custom', c.id, c.name,
+        `€${fmt(c.ecoCost)} · ${fmt(c.co2e)} kg CO2e · ${fmt(c.water, 1)} L · ${fmt(c.energyIn)} kWh`)).join('')
     : '<p class="hint">No custom lines yet.</p>';
 }
 
@@ -329,122 +365,47 @@ function renderPresetCheck(total) {
     This calculator computed €${fmt(total)} (difference €${fmt(diff)}, from source figures pre-rounded to 2 decimals).`;
 }
 
-// --- Carbon / Water / Energy: standalone "energy usage" calculator (shared data) ---
-function addEnergyUsageEntry(prefix) {
-  const energyId = document.getElementById(`${prefix}-energy-id`).value;
-  const kwh = Number(document.getElementById(`${prefix}-kwh`).value);
-  if (!energyId || !kwh || kwh <= 0) {
-    alert('Pick an energy source and a positive kWh value.');
+// --- Best case / worst case: holding materials, transport, and end-of-life fixed,
+// how much does the total move if assembly energy alone used the cleanest vs.
+// dirtiest available source? Grounded in the app's own reference data. ---
+const RANGE_IDS = {
+  co2e: { wrap: 'carbon-range-wrap', bestLabel: 'carbon-range-best-label', worstLabel: 'carbon-range-worst-label', marker: 'carbon-range-marker', your: 'carbon-range-your', na: 'carbon-range-na' },
+  water: { wrap: 'water-range-wrap', bestLabel: 'water-range-best-label', worstLabel: 'water-range-worst-label', marker: 'water-range-marker', your: 'water-range-your', na: 'water-range-na' },
+  energyIn: { wrap: 'energy-range-wrap', bestLabel: 'energy-range-best-label', worstLabel: 'energy-range-worst-label', marker: 'energy-range-marker', your: 'energy-range-your', na: 'energy-range-na' },
+};
+
+function renderRangeMeter(metricKey, items, total) {
+  const ids = RANGE_IDS[metricKey];
+  if (total === null || !product.assembly) {
+    document.getElementById(ids.wrap).style.display = 'none';
+    document.getElementById(ids.na).style.display = total === null ? 'none' : '';
     return;
   }
-  energyUsageEntries.push({ id: nextLineId++, energyId, kwh });
-  document.getElementById(`${prefix}-kwh`).value = '';
-  renderAll();
-}
+  document.getElementById(ids.na).style.display = 'none';
+  document.getElementById(ids.wrap).style.display = '';
 
-function energyUsageItems() {
-  return energyUsageEntries.map(e => {
-    const energy = findById(ENERGY, e.energyId);
-    return {
-      label: energy.name,
-      detail: `${fmt(e.kwh)} kWh × ${energy.name}`,
-      co2e: e.kwh * energy.co2e,
-      water: e.kwh * energy.water,
-      energyIn: e.kwh * energy.energyIn,
-    };
-  });
-}
-
-function renderEnergyUsageLists() {
-  const html = energyUsageEntries.length
-    ? energyUsageEntries.map(e => {
-        const energy = findById(ENERGY, e.energyId);
-        return lineItemRow('energyUsage', e.id, energy.name, `${fmt(e.kwh)} kWh`);
-      }).join('')
-    : '<p class="hint">No energy usage entries yet.</p>';
-  document.getElementById('carbon-entries-list').innerHTML = html;
-  document.getElementById('water-entries-list').innerHTML = html;
-  document.getElementById('energy-entries-list').innerHTML = html;
-}
-
-function energyUsageTotals() {
-  const items = energyUsageItems();
-  return {
-    co2e: items.reduce((s, i) => s + i.co2e, 0),
-    water: items.reduce((s, i) => s + i.water, 0),
-    energyIn: items.reduce((s, i) => s + i.energyIn, 0),
-  };
-}
-
-// Best/worst case: same total kWh, but every entry using the cleanest (or dirtiest)
-// available ENERGY source for that metric — grounded in the app's own reference
-// data, not an external benchmark.
-function energyUsageRange(metricKey) {
-  const totalKwh = energyUsageEntries.reduce((s, e) => s + e.kwh, 0);
+  const nonAssemblyTotal = items.filter(i => i.kind !== 'assembly').reduce((s, i) => s + i[metricKey], 0);
+  const mj = product.assembly.mjPerKg * totalPartsWeight();
+  const kwh = mj / 3.6;
   const factors = ENERGY.map(e => e[metricKey]);
   const bestSource = ENERGY.find(e => e[metricKey] === Math.min(...factors));
   const worstSource = ENERGY.find(e => e[metricKey] === Math.max(...factors));
-  return {
-    best: totalKwh * bestSource[metricKey],
-    worst: totalKwh * worstSource[metricKey],
-    bestSource,
-    worstSource,
-  };
-}
+  const best = nonAssemblyTotal + kwh * bestSource[metricKey];
+  const worst = nonAssemblyTotal + kwh * worstSource[metricKey];
 
-const RANGE_IDS = {
-  co2e: { bestLabel: 'carbon-range-best-label', worstLabel: 'carbon-range-worst-label', marker: 'carbon-range-marker', your: 'carbon-range-your' },
-  water: { bestLabel: 'water-range-best-label', worstLabel: 'water-range-worst-label', marker: 'water-range-marker', your: 'water-range-your' },
-  energyIn: { bestLabel: 'energy-range-best-label', worstLabel: 'energy-range-worst-label', marker: 'energy-range-marker', your: 'energy-range-your' },
-};
-
-function renderRangeMeter(metricKey, total) {
-  const ids = RANGE_IDS[metricKey];
-  const range = energyUsageRange(metricKey);
-  const marker = document.getElementById(ids.marker);
-  document.getElementById(ids.bestLabel).textContent = `Best case: ${fmtMetric(range.best, metricKey)} (${range.bestSource.name})`;
-  document.getElementById(ids.worstLabel).textContent = `Worst case: ${fmtMetric(range.worst, metricKey)} (${range.worstSource.name})`;
+  document.getElementById(ids.bestLabel).textContent = `Best case: ${fmtMetric(best, metricKey)} (${bestSource.name})`;
+  document.getElementById(ids.worstLabel).textContent = `Worst case: ${fmtMetric(worst, metricKey)} (${worstSource.name})`;
   document.getElementById(ids.your).textContent = fmtMetric(total, metricKey);
-  const span = range.worst - range.best;
-  const pct = span > 0 ? Math.min(100, Math.max(0, ((total - range.best) / span) * 100)) : 0;
-  marker.style.left = `${pct}%`;
+  const span = worst - best;
+  const pct = span > 0 ? Math.min(100, Math.max(0, ((total - best) / span) * 100)) : 0;
+  document.getElementById(ids.marker).style.left = `${pct}%`;
 }
 
-// --- Recycled content: standalone calculator ---
-function addRecycledEntry() {
-  const materialId = document.getElementById('recycled-material').value;
-  const weight = Number(document.getElementById('recycled-weight').value);
-  if (!materialId || !weight || weight <= 0) {
-    alert('Pick a material and a positive weight.');
-    return;
-  }
-  recycledEntries.push({ id: nextLineId++, materialId, weight });
-  document.getElementById('recycled-weight').value = '';
-  renderAll();
-}
-
-function computeRecycledPct() {
-  let totalWeight = 0;
-  let recycledWeight = 0;
-  for (const entry of recycledEntries) {
-    const material = findById(MATERIALS, entry.materialId);
-    totalWeight += entry.weight;
-    recycledWeight += entry.weight * (material.recycledPct / 100);
-  }
-  return totalWeight > 0 ? (recycledWeight / totalWeight) * 100 : 0;
-}
-
+// --- Recycled content: derived view of Home's parts (no separate entry form) ---
 function renderRecycledTab() {
   const empty = document.getElementById('recycled-empty');
   const body = document.getElementById('recycled-body');
-  document.getElementById('recycled-entries-list').innerHTML = recycledEntries.length
-    ? recycledEntries.map(r => {
-        const material = findById(MATERIALS, r.materialId);
-        return lineItemRow('recycledEntry', r.id, material.name, `${fmt(r.weight)} kg · ${fmt(material.recycledPct, 0)}% recycled`);
-      }).join('')
-    : '<p class="hint">No materials added yet.</p>';
-
-  if (!recycledEntries.length) {
+  if (!product.parts.length) {
     empty.style.display = '';
     body.style.display = 'none';
     return;
@@ -452,12 +413,12 @@ function renderRecycledTab() {
   empty.style.display = 'none';
   body.style.display = '';
 
-  document.getElementById('recycled-tbody').innerHTML = recycledEntries.map(r => {
-    const material = findById(MATERIALS, r.materialId);
+  document.getElementById('recycled-tbody').innerHTML = product.parts.map(p => {
+    const material = findById(MATERIALS, p.materialId);
     return `<tr>
-      <td>${material.name}</td>
-      <td class="detail-cell">${material.category}</td>
-      <td class="num">${fmt(r.weight)} kg</td>
+      <td>${p.name}</td>
+      <td class="detail-cell">${material.name}</td>
+      <td class="num">${fmt(p.weight)} kg</td>
       <td class="num">${fmt(material.recycledPct, 0)}%</td>
     </tr>`;
   }).join('');
@@ -472,8 +433,8 @@ function renderRecycledTab() {
   const materialBaseName = (name) => name.split(' ')[0];
   const seenBaseNames = new Set();
   const hints = [];
-  for (const r of recycledEntries) {
-    const material = findById(MATERIALS, r.materialId);
+  for (const p of product.parts) {
+    const material = findById(MATERIALS, p.materialId);
     const baseName = materialBaseName(material.name);
     if (seenBaseNames.has(baseName)) continue;
     seenBaseNames.add(baseName);
@@ -486,38 +447,89 @@ function renderRecycledTab() {
   }
   document.getElementById('recycled-hints').innerHTML = hints.length
     ? `<strong>Higher-recycled alternatives available in your reference data:</strong><ul>${hints.join('')}</ul>`
-    : '<strong>No higher-recycled alternative found</strong> in the reference data for the materials you\'ve added.';
+    : '<strong>No higher-recycled alternative found</strong> in the reference data for the materials in this product.';
 
-  document.getElementById('recycled-chart').innerHTML = recycledEntries.map(r => {
-    const material = findById(MATERIALS, r.materialId);
+  document.getElementById('recycled-chart').innerHTML = product.parts.map(p => {
+    const material = findById(MATERIALS, p.materialId);
     return `<div class="chart-row">
-      <span class="chart-label">${material.name}</span>
+      <span class="chart-label">${p.name}</span>
       <div class="chart-track"><div class="chart-bar bar-credit" style="width:${material.recycledPct}%"></div></div>
       <span class="chart-value">${fmt(material.recycledPct, 0)}%</span>
     </div>`;
   }).join('');
 }
 
-// --- Sensitivity analysis: standalone, generic calculator ---
-function runSensitivity() {
-  const label = document.getElementById('sens-label').value.trim() || 'Value';
-  const base = Number(document.getElementById('sens-base').value);
-  if (Number.isNaN(base) || document.getElementById('sens-base').value === '') {
-    alert('Enter a base value to test.');
-    return;
+// --- Sensitivity analysis: pick an input from the current product, vary it ---
+function sensitivityTargets() {
+  const targets = [];
+  product.parts.forEach(p => targets.push({ id: `part:${p.id}`, label: `Part: ${p.name} (weight)` }));
+  if (product.assembly) targets.push({ id: 'assembly:0', label: 'Assembly energy (MJ/kg)' });
+  product.transportLegs.forEach(t => {
+    const transport = findById(TRANSPORT, t.transportId);
+    targets.push({ id: `transport:${t.id}`, label: `Transport: ${transport.name} (distance)` });
+  });
+  product.customLines.forEach(c => targets.push({ id: `custom:${c.id}`, label: `Custom: ${c.name}` }));
+  return targets;
+}
+
+function renderSensitivityOptions() {
+  const select = document.getElementById('sens-target');
+  const targets = sensitivityTargets();
+  const prevValue = select.value;
+  select.innerHTML = targets.map(t => `<option value="${t.id}">${t.label}</option>`).join('');
+  if (targets.some(t => t.id === prevValue)) select.value = prevValue;
+
+  const hasTargets = targets.length > 0;
+  document.getElementById('sens-empty').style.display = hasTargets ? 'none' : '';
+  document.getElementById('sens-form').style.display = hasTargets ? '' : 'none';
+  if (!hasTargets) document.getElementById('sens-table').style.display = 'none';
+}
+
+function buildScaledProduct(targetId, factor) {
+  const clone = JSON.parse(JSON.stringify(product));
+  const [type, idStr] = targetId.split(':');
+  const id = Number(idStr);
+  if (type === 'part') {
+    const p = clone.parts.find(x => x.id === id);
+    if (p) p.weight *= factor;
+  } else if (type === 'assembly') {
+    if (clone.assembly) clone.assembly.mjPerKg *= factor;
+  } else if (type === 'transport') {
+    const t = clone.transportLegs.find(x => x.id === id);
+    if (t) { t.distanceKm *= factor; t.tkm *= factor; }
+  } else if (type === 'custom') {
+    const c = clone.customLines.find(x => x.id === id);
+    if (c) {
+      c.ecoCost = (c.ecoCost || 0) * factor;
+      c.co2e = (c.co2e || 0) * factor;
+      c.water = (c.water || 0) * factor;
+      c.energyIn = (c.energyIn || 0) * factor;
+    }
   }
+  return clone;
+}
+
+function runSensitivity() {
+  const targetId = document.getElementById('sens-target').value;
+  if (!targetId) return;
   const pct = Number(document.getElementById('sens-variation').value);
-  const down = base * (1 - pct / 100);
-  const up = base * (1 + pct / 100);
+
+  const base = totalsFor(computeLineItems(product));
+  const down = totalsFor(computeLineItems(buildScaledProduct(targetId, 1 - pct / 100)));
+  const up = totalsFor(computeLineItems(buildScaledProduct(targetId, 1 + pct / 100)));
 
   document.getElementById('sens-table').style.display = '';
-  document.getElementById('sens-tbody').innerHTML = `<tr>
-    <td>${label}</td>
-    <td class="num">${fmt(down)}</td>
-    <td class="num">${fmt(base)}</td>
-    <td class="num">${fmt(up)}</td>
-    <td class="num">${fmt(up - down)}</td>
-  </tr>`;
+  document.getElementById('sens-tbody').innerHTML = Object.keys(METRICS).map(key => {
+    const lo = Math.min(down[key], up[key]);
+    const hi = Math.max(down[key], up[key]);
+    return `<tr>
+      <td>${METRICS[key].label}</td>
+      <td class="num">${fmtMetric(down[key], key)}</td>
+      <td class="num">${fmtMetric(base[key], key)}</td>
+      <td class="num">${fmtMetric(up[key], key)}</td>
+      <td class="num">${fmtMetric(hi - lo, key)}</td>
+    </tr>`;
+  }).join('');
 }
 
 // --- CSV export (client-side, no dependencies) ---
@@ -545,36 +557,35 @@ function downloadCsv(filename, csv) {
 const CSV_EXPORTERS = {
   eco: () => {
     const items = computeLineItems();
-    const total = items.reduce((s, i) => s + i.ecoCost, 0);
     const rows = items.map(i => [i.label, i.detail, i.ecoCost.toFixed(2)]);
-    rows.push(['Total', '', total.toFixed(2)]);
+    rows.push(['Total', '', items.reduce((s, i) => s + i.ecoCost, 0).toFixed(2)]);
     return csvFromRows(['Line item', 'Detail', 'Eco-cost (EUR)'], rows);
   },
   carbon: () => {
-    const items = energyUsageItems();
+    const items = computeLineItems();
     const rows = items.map(i => [i.label, i.detail, i.co2e.toFixed(2)]);
     rows.push(['Total', '', items.reduce((s, i) => s + i.co2e, 0).toFixed(2)]);
-    return csvFromRows(['Energy source', 'Detail', 'kg CO2e'], rows);
+    return csvFromRows(['Line item', 'Detail', 'kg CO2e'], rows);
   },
   water: () => {
-    const items = energyUsageItems();
+    const items = computeLineItems();
     const rows = items.map(i => [i.label, i.detail, i.water.toFixed(1)]);
     rows.push(['Total', '', items.reduce((s, i) => s + i.water, 0).toFixed(1)]);
-    return csvFromRows(['Energy source', 'Detail', 'Water (L)'], rows);
+    return csvFromRows(['Line item', 'Detail', 'Water (L)'], rows);
   },
   energy: () => {
-    const items = energyUsageItems();
+    const items = computeLineItems();
     const rows = items.map(i => [i.label, i.detail, i.energyIn.toFixed(2)]);
     rows.push(['Total', '', items.reduce((s, i) => s + i.energyIn, 0).toFixed(2)]);
-    return csvFromRows(['Energy source', 'Detail', 'Energy (kWh)'], rows);
+    return csvFromRows(['Line item', 'Detail', 'Energy (kWh)'], rows);
   },
   recycled: () => {
-    const rows = recycledEntries.map(r => {
-      const material = findById(MATERIALS, r.materialId);
-      return [material.name, material.category, r.weight.toFixed(2), material.recycledPct];
+    const rows = product.parts.map(p => {
+      const material = findById(MATERIALS, p.materialId);
+      return [p.name, material.name, p.weight.toFixed(2), material.recycledPct];
     });
     rows.push(['Weighted total', '', '', computeRecycledPct().toFixed(1)]);
-    return csvFromRows(['Material', 'Category', 'Weight (kg)', 'Recycled %'], rows);
+    return csvFromRows(['Part', 'Material', 'Weight (kg)', 'Recycled %'], rows);
   },
 };
 
@@ -585,13 +596,12 @@ function exportCsv(tabKey, filename) {
 }
 
 // --- Home: overview dashboard (previews every tab) ---
-function renderOverview(ecoItems) {
-  const ecoTotal = ecoItems.reduce((sum, i) => sum + i.ecoCost, 0);
-  const energyTotals = energyUsageTotals();
-  document.getElementById('stat-ecoCost').textContent = fmtMetric(ecoTotal, 'ecoCost');
-  document.getElementById('stat-co2e').textContent = fmtMetric(energyTotals.co2e, 'co2e');
-  document.getElementById('stat-water').textContent = fmtMetric(energyTotals.water, 'water');
-  document.getElementById('stat-energyIn').textContent = fmtMetric(energyTotals.energyIn, 'energyIn');
+function renderOverview(items) {
+  const totals = totalsFor(items);
+  document.getElementById('stat-ecoCost').textContent = fmtMetric(totals.ecoCost, 'ecoCost');
+  document.getElementById('stat-co2e').textContent = fmtMetric(totals.co2e, 'co2e');
+  document.getElementById('stat-water').textContent = fmtMetric(totals.water, 'water');
+  document.getElementById('stat-energyIn').textContent = fmtMetric(totals.energyIn, 'energyIn');
   document.getElementById('stat-recycled').textContent = `${fmt(computeRecycledPct(), 1)}%`;
 }
 
@@ -602,26 +612,26 @@ function renderAll() {
   renderTransport();
   renderCustom();
 
-  const ecoItems = computeLineItems();
-  const ecoTotal = renderBreakdown(ecoItems, 'ecoCost', ECO_IDS);
-  renderPresetCheck(ecoTotal);
+  const items = computeLineItems();
+  renderOverview(items);
 
-  renderEnergyUsageLists();
-  const enItems = energyUsageItems();
-  const co2eTotal = renderBreakdown(enItems, 'co2e', CARBON_IDS);
-  const waterTotal = renderBreakdown(enItems, 'water', WATER_IDS);
-  const energyInTotal = renderBreakdown(enItems, 'energyIn', ENERGY_IDS);
-  if (co2eTotal !== null) renderRangeMeter('co2e', co2eTotal);
-  if (waterTotal !== null) renderRangeMeter('water', waterTotal);
-  if (energyInTotal !== null) renderRangeMeter('energyIn', energyInTotal);
+  const ecoTotal = renderBreakdown(items, 'ecoCost', ECO_IDS);
+  renderPresetCheck(ecoTotal);
+  const co2eTotal = renderBreakdown(items, 'co2e', CARBON_IDS);
+  const waterTotal = renderBreakdown(items, 'water', WATER_IDS);
+  const energyInTotal = renderBreakdown(items, 'energyIn', ENERGY_IDS);
+  renderRangeMeter('co2e', items, co2eTotal);
+  renderRangeMeter('water', items, waterTotal);
+  renderRangeMeter('energyIn', items, energyInTotal);
 
   renderRecycledTab();
-  renderOverview(ecoItems);
+  renderSensitivityOptions();
+  document.getElementById('sens-table').style.display = 'none';
 
   updateTransportPreview();
 }
 
-// --- Presets (Home / eco-cost only) ---
+// --- Presets ---
 function loadPreset(key) {
   const preset = PRESET_EXAMPLES[key];
   product = { parts: [], assembly: null, transportLegs: [], customLines: [] };
@@ -636,7 +646,7 @@ function loadPreset(key) {
   }
   if (preset.customLines) {
     for (const c of preset.customLines) {
-      product.customLines.push({ id: nextLineId++, name: c.name, ecoCost: c.ecoCost });
+      product.customLines.push({ id: nextLineId++, name: c.name, ecoCost: c.ecoCost, co2e: 0, water: 0, energyIn: 0 });
     }
   }
   activePresetKey = key;
@@ -644,7 +654,7 @@ function loadPreset(key) {
   showTab('home');
 }
 
-// --- Scenarios (localStorage, Home / eco-cost only) ---
+// --- Scenarios (localStorage) ---
 function loadScenarios() {
   try { return JSON.parse(localStorage.getItem(SCENARIOS_KEY) || '[]'); } catch (e) { return []; }
 }
@@ -658,9 +668,10 @@ function saveScenario() {
   if (!name) { alert('Name this scenario first.'); return; }
   const items = computeLineItems();
   if (!items.length) { alert('Build a product before saving it as a scenario.'); return; }
-  const total = items.reduce((sum, i) => sum + i.ecoCost, 0);
+  const totals = totalsFor(items);
+  const recycledPct = computeRecycledPct();
   const scenarios = loadScenarios();
-  scenarios.push({ id: Date.now(), name, total, product: JSON.parse(JSON.stringify(product)) });
+  scenarios.push({ id: Date.now(), name, totals, recycledPct, product: JSON.parse(JSON.stringify(product)) });
   saveScenarios(scenarios);
   document.getElementById('scenario-name').value = '';
   renderScenarios();
@@ -681,6 +692,10 @@ function loadScenario(id) {
   showTab('home');
 }
 
+function scenarioTotals(s) {
+  return s.totals || { ecoCost: s.total || 0, co2e: 0, water: 0, energyIn: 0 };
+}
+
 function renderScenarios() {
   const scenarios = loadScenarios();
   const empty = document.getElementById('scenarios-empty');
@@ -695,21 +710,28 @@ function renderScenarios() {
   empty.style.display = 'none';
   table.style.display = '';
 
-  document.getElementById('scenarios-tbody').innerHTML = scenarios.map(s => `
-    <tr>
+  document.getElementById('scenarios-tbody').innerHTML = scenarios.map(s => {
+    const totals = scenarioTotals(s);
+    return `<tr>
       <td><a href="#" onclick="loadScenario(${s.id}); return false;">${s.name}</a></td>
-      <td class="num">${fmt(s.total)}</td>
+      <td class="num">${fmtMetric(totals.ecoCost, 'ecoCost')}</td>
+      <td class="num">${fmtMetric(totals.co2e, 'co2e')}</td>
+      <td class="num">${fmtMetric(totals.water, 'water')}</td>
+      <td class="num">${fmtMetric(totals.energyIn, 'energyIn')}</td>
+      <td class="num">${fmt(s.recycledPct || 0, 1)}%</td>
       <td><button type="button" class="btn-remove" onclick="deleteScenario(${s.id})">✕</button></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
-  const maxAbs = Math.max(...scenarios.map(s => Math.abs(s.total)), 0.0001);
+  const maxAbs = Math.max(...scenarios.map(s => Math.abs(scenarioTotals(s).ecoCost)), 0.0001);
   chart.innerHTML = scenarios.map(s => {
-    const pct = (Math.abs(s.total) / maxAbs) * 100;
-    const barClass = s.total < 0 ? 'bar-credit' : 'bar-burden';
+    const total = scenarioTotals(s).ecoCost;
+    const pct = (Math.abs(total) / maxAbs) * 100;
+    const barClass = total < 0 ? 'bar-credit' : 'bar-burden';
     return `<div class="chart-row">
       <span class="chart-label">${s.name}</span>
       <div class="chart-track"><div class="chart-bar ${barClass}" style="width:${pct}%"></div></div>
-      <span class="chart-value">€${fmt(s.total)}</span>
+      <span class="chart-value">€${fmt(total)}</span>
     </div>`;
   }).join('');
 }

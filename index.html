@@ -10,16 +10,16 @@
 
 <header class="site-header">
   <h1>🌱 Eco-Cost Calculator</h1>
-  <p class="subtitle">Build a product from materials, processing, transport and end-of-life, and get a full Life Cycle Assessment eco-cost breakdown using the single-indicator eco-costs method.</p>
+  <p class="subtitle">Build a product from materials, processing, transport and end-of-life, and get a full Life Cycle Assessment breakdown using the single-indicator eco-costs method.</p>
 </header>
 
 <nav class="tabs">
-  <button type="button" id="tabbtn-home" class="tab-btn active" onclick="showTab('home')"><span class="tab-dot"></span>Home</button>
-  <button type="button" id="tabbtn-carbon" class="tab-btn" onclick="showTab('carbon')"><span class="tab-dot"></span>Carbon footprint</button>
-  <button type="button" id="tabbtn-water" class="tab-btn" onclick="showTab('water')"><span class="tab-dot"></span>Water consumption</button>
-  <button type="button" id="tabbtn-energy" class="tab-btn" onclick="showTab('energy')"><span class="tab-dot"></span>Energy in production</button>
-  <button type="button" id="tabbtn-recycled" class="tab-btn" onclick="showTab('recycled')"><span class="tab-dot"></span>Recycled content</button>
-  <button type="button" id="tabbtn-sensitivity" class="tab-btn" onclick="showTab('sensitivity')"><span class="tab-dot"></span>Sensitivity analysis</button>
+  <button type="button" id="tabbtn-home" class="tab-btn active" onclick="showTab('home')">Home</button>
+  <button type="button" id="tabbtn-carbon" class="tab-btn" onclick="showTab('carbon')">Carbon footprint</button>
+  <button type="button" id="tabbtn-water" class="tab-btn" onclick="showTab('water')">Water consumption</button>
+  <button type="button" id="tabbtn-energy" class="tab-btn" onclick="showTab('energy')">Energy in production</button>
+  <button type="button" id="tabbtn-recycled" class="tab-btn" onclick="showTab('recycled')">Recycled content</button>
+  <button type="button" id="tabbtn-sensitivity" class="tab-btn" onclick="showTab('sensitivity')">Sensitivity analysis</button>
 </nav>
 
 <main>
@@ -29,9 +29,9 @@
 
     <section class="card" id="overview-card">
       <h2>Overview — all impact indicators</h2>
-      <p class="hint">A live preview of every tab on this site: eco-cost comes from the product you build below; the rest come from each tab's own calculator — visit a tab to add to it.</p>
+      <p class="hint">Live totals for the product you build below — one build feeds every tab on this site.</p>
       <div class="stat-grid">
-        <div class="stat" id="stat-card-ecoCost"><span class="stat-label">Eco-cost</span><span class="stat-value" id="stat-ecoCost">€0.00</span></div>
+        <div class="stat stat-primary" id="stat-card-ecoCost"><span class="stat-label">Eco-cost</span><span class="stat-value" id="stat-ecoCost">€0.00</span></div>
         <div class="stat" id="stat-card-co2e"><span class="stat-label">Carbon footprint</span><span class="stat-value" id="stat-co2e">0.00 kg CO2e</span></div>
         <div class="stat" id="stat-card-water"><span class="stat-label">Water consumption</span><span class="stat-value" id="stat-water">0.0 L</span></div>
         <div class="stat" id="stat-card-energyIn"><span class="stat-label">Energy used in production</span><span class="stat-value" id="stat-energyIn">0.00 kWh</span></div>
@@ -60,14 +60,15 @@
       <form id="part-form" class="add-form" onsubmit="return false;">
         <input type="text" id="part-name" placeholder="Part name (e.g. Body)" required>
         <select id="part-category" onchange="renderMaterialOptions()"></select>
-        <select id="part-material"></select>
+        <input type="text" id="part-material" list="material-datalist" placeholder="Type to search material…" autocomplete="off">
+        <datalist id="material-datalist"></datalist>
         <input type="number" id="part-weight" placeholder="Weight (kg)" min="0" step="any" required>
         <select id="part-process"></select>
         <select id="part-eol"></select>
         <button type="button" class="btn-primary" onclick="addPart()">Add part →</button>
       </form>
 
-      <h3>Assembly energy <span class="hint-inline">(applied once, across the whole product's weight)</span></h3>
+      <h3>Assembly energy <span class="hint-inline">(applied to the total weight of the product)</span></h3>
       <div id="assembly-line" class="line-items"></div>
       <form class="add-form" onsubmit="return false;">
         <select id="assembly-energy"></select>
@@ -84,11 +85,14 @@
         <button type="button" class="btn-primary" onclick="addTransport()">Add transport leg →</button>
       </form>
 
-      <h3>Custom line item <span class="hint-inline">(any known eco-cost not covered above, in euro)</span></h3>
+      <h3>Custom line item <span class="hint-inline">(any known impact not covered above)</span></h3>
       <div id="custom-list" class="line-items"></div>
       <form class="add-form" onsubmit="return false;">
         <input type="text" id="custom-name" placeholder="Description (e.g. Packaging)">
-        <input type="number" id="custom-value" placeholder="Eco-cost (euro)" step="any">
+        <input type="number" id="custom-value" placeholder="Eco-cost (euros)" step="any">
+        <input type="number" id="custom-co2e" placeholder="Carbon (kg CO2e)" step="any">
+        <input type="number" id="custom-water" placeholder="Water (L)" step="any">
+        <input type="number" id="custom-energy" placeholder="Energy (kWh)" step="any">
         <button type="button" class="btn-primary" onclick="addCustomLine()">Add custom line →</button>
       </form>
     </section>
@@ -117,14 +121,14 @@
 
     <section class="card" id="scenarios-card">
       <h2>3. Save &amp; compare scenarios</h2>
-      <p class="hint">Save the current product as a named scenario (e.g. "Base case", "Recycled aluminium body"), then compare totals side by side to see which design choices reduce environmental impact most.</p>
+      <p class="hint">Save the current product as a named scenario (e.g. "Base case", "Recycled aluminium body"), then compare every indicator side by side to see which design choices reduce environmental impact most.</p>
       <form class="add-form" onsubmit="return false;">
         <input type="text" id="scenario-name" placeholder="Scenario name">
         <button type="button" class="btn-primary" onclick="saveScenario()">Save current product as scenario →</button>
       </form>
       <div id="scenarios-empty" class="hint">No scenarios saved yet.</div>
       <table class="results-table" id="scenarios-table" style="display:none;">
-        <thead><tr><th>Scenario</th><th>Total eco-cost (€)</th><th></th></tr></thead>
+        <thead><tr><th>Scenario</th><th>Eco-cost</th><th>Carbon</th><th>Water</th><th>Energy</th><th>Recycled %</th><th></th></tr></thead>
         <tbody id="scenarios-tbody"></tbody>
       </table>
       <div id="scenarios-chart" class="chart"></div>
@@ -132,27 +136,22 @@
 
   </section>
 
-  <!-- ===== CARBON FOOTPRINT (standalone — shares energy-usage entries with Water & Energy tabs) ===== -->
+  <!-- ===== CARBON FOOTPRINT (derived view of the Home product) ===== -->
   <section id="tab-carbon" class="tab-panel" style="display:none;">
     <section class="card">
-      <h2>Carbon footprint calculator</h2>
-      <p class="hint">Add each energy source you use and how much of it (kWh) — works on its own, independent of the Home builder. (Shared with the Water and Energy tabs, since all three are measured per kWh of the same energy use.)</p>
-      <div id="carbon-entries-list" class="line-items"></div>
-      <form class="add-form" onsubmit="return false;">
-        <select id="carbon-energy-id"></select>
-        <input type="number" id="carbon-kwh" placeholder="Energy used (kWh)" min="0" step="any">
-        <button type="button" class="btn-primary" onclick="addEnergyUsageEntry('carbon')">Add entry →</button>
-      </form>
-      <div id="carbon-empty" class="hint">Add an energy entry above to see the carbon footprint.</div>
+      <h2>Carbon footprint</h2>
+      <p class="hint">CO2e breakdown for the product you build on the Home tab — nothing to enter here.</p>
+      <div id="carbon-empty" class="hint">Add at least one part on the Home tab to see the carbon breakdown.</div>
       <div id="carbon-body" style="display:none;">
         <table class="results-table">
-          <thead><tr><th>Energy source</th><th>Detail</th><th>kg CO2e</th></tr></thead>
+          <thead><tr><th>Line item</th><th>Detail</th><th>kg CO2e</th></tr></thead>
           <tbody id="carbon-tbody"></tbody>
           <tfoot><tr><th colspan="2">Total carbon footprint</th><th id="carbon-total"></th></tr></tfoot>
         </table>
 
-        <h3>Best case / worst case <span class="hint-inline">(same kWh, using the cleanest vs. dirtiest available energy source)</span></h3>
-        <div class="range-meter-wrap">
+        <h3>Best case / worst case <span class="hint-inline">(same assembly energy amount, cleanest vs. dirtiest available source)</span></h3>
+        <p class="hint" id="carbon-range-na" style="display:none;">Set an assembly energy amount on Home to see this comparison.</p>
+        <div class="range-meter-wrap" id="carbon-range-wrap" style="display:none;">
           <div class="range-meter-labels"><span class="best" id="carbon-range-best-label"></span><span class="worst" id="carbon-range-worst-label"></span></div>
           <div class="range-meter"><div class="range-meter-marker" id="carbon-range-marker"></div></div>
           <div class="range-meter-your">Your total: <strong id="carbon-range-your"></strong></div>
@@ -167,27 +166,22 @@
     </section>
   </section>
 
-  <!-- ===== WATER CONSUMPTION (standalone — shares energy-usage entries with Carbon & Energy tabs) ===== -->
+  <!-- ===== WATER CONSUMPTION (derived view of the Home product) ===== -->
   <section id="tab-water" class="tab-panel" style="display:none;">
     <section class="card">
-      <h2>Water consumption calculator</h2>
-      <p class="hint">Add each energy source you use and how much of it (kWh) — works on its own, independent of the Home builder. (Shared with the Carbon and Energy tabs, since all three are measured per kWh of the same energy use.)</p>
-      <div id="water-entries-list" class="line-items"></div>
-      <form class="add-form" onsubmit="return false;">
-        <select id="water-energy-id"></select>
-        <input type="number" id="water-kwh" placeholder="Energy used (kWh)" min="0" step="any">
-        <button type="button" class="btn-primary" onclick="addEnergyUsageEntry('water')">Add entry →</button>
-      </form>
-      <div id="water-empty" class="hint">Add an energy entry above to see water consumption.</div>
+      <h2>Water consumption</h2>
+      <p class="hint">Water use (litres) for the product you build on the Home tab — nothing to enter here.</p>
+      <div id="water-empty" class="hint">Add at least one part on the Home tab to see the water breakdown.</div>
       <div id="water-body" style="display:none;">
         <table class="results-table">
-          <thead><tr><th>Energy source</th><th>Detail</th><th>Water (L)</th></tr></thead>
+          <thead><tr><th>Line item</th><th>Detail</th><th>Water (L)</th></tr></thead>
           <tbody id="water-tbody"></tbody>
           <tfoot><tr><th colspan="2">Total water consumption</th><th id="water-total"></th></tr></tfoot>
         </table>
 
-        <h3>Best case / worst case <span class="hint-inline">(same kWh, using the cleanest vs. dirtiest available energy source)</span></h3>
-        <div class="range-meter-wrap">
+        <h3>Best case / worst case <span class="hint-inline">(same assembly energy amount, cleanest vs. dirtiest available source)</span></h3>
+        <p class="hint" id="water-range-na" style="display:none;">Set an assembly energy amount on Home to see this comparison.</p>
+        <div class="range-meter-wrap" id="water-range-wrap" style="display:none;">
           <div class="range-meter-labels"><span class="best" id="water-range-best-label"></span><span class="worst" id="water-range-worst-label"></span></div>
           <div class="range-meter"><div class="range-meter-marker" id="water-range-marker"></div></div>
           <div class="range-meter-your">Your total: <strong id="water-range-your"></strong></div>
@@ -202,27 +196,22 @@
     </section>
   </section>
 
-  <!-- ===== ENERGY USED IN PRODUCTION (standalone — shares energy-usage entries with Carbon & Water tabs) ===== -->
+  <!-- ===== ENERGY USED IN PRODUCTION (derived view of the Home product) ===== -->
   <section id="tab-energy" class="tab-panel" style="display:none;">
     <section class="card">
-      <h2>Energy used in production calculator</h2>
-      <p class="hint">Add each energy source you use and how much of it (kWh) — works on its own, independent of the Home builder. (Shared with the Carbon and Water tabs, since all three are measured per kWh of the same energy use.)</p>
-      <div id="energy-entries-list" class="line-items"></div>
-      <form class="add-form" onsubmit="return false;">
-        <select id="energy-energy-id"></select>
-        <input type="number" id="energy-kwh" placeholder="Energy used (kWh)" min="0" step="any">
-        <button type="button" class="btn-primary" onclick="addEnergyUsageEntry('energy')">Add entry →</button>
-      </form>
-      <div id="energy-empty" class="hint">Add an energy entry above to see embodied energy.</div>
+      <h2>Energy used in production</h2>
+      <p class="hint">Embodied / cumulative energy demand (kWh) for the product you build on the Home tab — nothing to enter here.</p>
+      <div id="energy-empty" class="hint">Add at least one part on the Home tab to see the energy breakdown.</div>
       <div id="energy-body" style="display:none;">
         <table class="results-table">
-          <thead><tr><th>Energy source</th><th>Detail</th><th>Energy (kWh)</th></tr></thead>
+          <thead><tr><th>Line item</th><th>Detail</th><th>Energy (kWh)</th></tr></thead>
           <tbody id="energy-tbody"></tbody>
           <tfoot><tr><th colspan="2">Total energy used in production</th><th id="energy-total"></th></tr></tfoot>
         </table>
 
-        <h3>Best case / worst case <span class="hint-inline">(same kWh, using the cleanest vs. dirtiest available energy source)</span></h3>
-        <div class="range-meter-wrap">
+        <h3>Best case / worst case <span class="hint-inline">(same assembly energy amount, cleanest vs. dirtiest available source)</span></h3>
+        <p class="hint" id="energy-range-na" style="display:none;">Set an assembly energy amount on Home to see this comparison.</p>
+        <div class="range-meter-wrap" id="energy-range-wrap" style="display:none;">
           <div class="range-meter-labels"><span class="best" id="energy-range-best-label"></span><span class="worst" id="energy-range-worst-label"></span></div>
           <div class="range-meter"><div class="range-meter-marker" id="energy-range-marker"></div></div>
           <div class="range-meter-your">Your total: <strong id="energy-range-your"></strong></div>
@@ -237,18 +226,12 @@
     </section>
   </section>
 
-  <!-- ===== RECYCLED CONTENT (standalone) ===== -->
+  <!-- ===== RECYCLED CONTENT (derived view of the Home product) ===== -->
   <section id="tab-recycled" class="tab-panel" style="display:none;">
     <section class="card">
-      <h2>Recycled content calculator</h2>
-      <p class="hint">Add each material and weight in your product — works on its own, independent of the Home builder. Result is weighted by weight, from each material's recycled-content share.</p>
-      <div id="recycled-entries-list" class="line-items"></div>
-      <form class="add-form" onsubmit="return false;">
-        <select id="recycled-material"></select>
-        <input type="number" id="recycled-weight" placeholder="Weight (kg)" min="0" step="any">
-        <button type="button" class="btn-primary" onclick="addRecycledEntry()">Add material →</button>
-      </form>
-      <div id="recycled-empty" class="hint">Add a material above to see recycled content.</div>
+      <h2>Recycled content</h2>
+      <p class="hint">Weighted by part weight, from each material's recycled-content share, for the product you build on the Home tab — nothing to enter here.</p>
+      <div id="recycled-empty" class="hint">Add at least one part on the Home tab to see recycled content.</div>
       <div id="recycled-body" style="display:none;">
         <div class="meter-row">
           <div class="radial-meter" id="recycled-meter">
@@ -260,10 +243,10 @@
           <div class="meter-hints" id="recycled-hints"></div>
         </div>
         <table class="results-table">
-          <thead><tr><th>Material</th><th>Category</th><th>Weight</th><th>Recycled %</th></tr></thead>
+          <thead><tr><th>Part</th><th>Material</th><th>Weight</th><th>Recycled %</th></tr></thead>
           <tbody id="recycled-tbody"></tbody>
         </table>
-        <h3>By material</h3>
+        <h3>By part</h3>
         <div id="recycled-chart" class="chart"></div>
         <div class="export-row">
           <button type="button" class="btn-secondary" onclick="exportCsv('recycled', 'recycled-content')">⬇ Export CSV</button>
@@ -272,23 +255,23 @@
     </section>
   </section>
 
-  <!-- ===== SENSITIVITY ANALYSIS (standalone) ===== -->
+  <!-- ===== SENSITIVITY ANALYSIS (derived view of the Home product) ===== -->
   <section id="tab-sensitivity" class="tab-panel" style="display:none;">
     <section class="card">
       <h2>Sensitivity analysis</h2>
-      <p class="hint">Enter any base number and see how much it moves at ± a given percentage — works on its own, independent of every other tab. Use it to test how sensitive a result is to uncertainty in one of its inputs.</p>
-      <form id="sens-form" class="add-form" onsubmit="return false;">
-        <input type="text" id="sens-label" placeholder="What are you testing? (e.g. Aluminium price)">
-        <input type="number" id="sens-base" placeholder="Base value" step="any">
+      <p class="hint">Pick one input from the product you build on the Home tab and see how much each total moves if that input is off by the chosen percentage — the biggest swings are the inputs most worth double-checking.</p>
+      <div id="sens-empty" class="hint">Build a product on the Home tab first, then pick an input here.</div>
+      <form id="sens-form" class="add-form" onsubmit="return false;" style="display:none;">
+        <select id="sens-target"></select>
         <select id="sens-variation">
           <option value="10">± 10%</option>
           <option value="20" selected>± 20%</option>
           <option value="50">± 50%</option>
         </select>
-        <button type="button" class="btn-primary" onclick="runSensitivity()">Calculate →</button>
+        <button type="button" class="btn-primary" onclick="runSensitivity()">Run sensitivity →</button>
       </form>
       <table class="results-table" id="sens-table" style="display:none;">
-        <thead><tr><th>Input</th><th>−X%</th><th>Base</th><th>+X%</th><th>Swing</th></tr></thead>
+        <thead><tr><th>Metric</th><th>−X%</th><th>Base</th><th>+X%</th><th>Swing</th></tr></thead>
         <tbody id="sens-tbody"></tbody>
       </table>
     </section>
@@ -297,8 +280,11 @@
 </main>
 
 <footer class="site-footer">
-  <p><strong>About this data:</strong> eco-cost figures are based on Idematapp / ecocostsvalue.com reference data (2020 excerpts), covering common materials, processes, energy, and transport modes &mdash; use the "Custom line item" field for anything not listed. Method: single-indicator eco-costs (euro), the prevention-cost approach.</p>
-  <p><strong>About the carbon / water / energy / recycled-content figures:</strong> these are representative reference values compiled from general public LCA literature, not from the same certified source as the eco-cost figures above. Treat them as indicative, and use the custom line fields for measured or certified numbers where precision matters.</p>
+  <details class="data-sources">
+    <summary>Data sources</summary>
+    <p><strong>About this data:</strong> eco-cost figures are based on Idematapp / ecocostsvalue.com reference data (2020 excerpts), covering common materials, processes, energy, and transport modes &mdash; use the "Custom line item" field for anything not listed. Method: single-indicator eco-costs (euros), the prevention-cost approach.</p>
+    <p><strong>About the carbon / water / energy / recycled-content figures:</strong> these are representative reference values compiled from general public LCA literature, not from the same certified source as the eco-cost figures above. Treat them as indicative, and use the custom line fields for measured or certified numbers where precision matters.</p>
+  </details>
 </footer>
 
 <script src="data.js"></script>

@@ -49,38 +49,29 @@ body {
   padding: 14px 16px 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
 }
 .tab-btn {
-  background: var(--card-bg);
+  background: transparent;
   color: var(--ink-soft);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 8px 16px 8px 12px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  padding: 8px 12px 6px;
   font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
-.tab-btn:hover { background: var(--page-bg); border-color: var(--tab-dot, var(--line)); }
-.tab-btn.active { background: var(--tab-dot, var(--green)); color: #fff; border-color: var(--tab-dot, var(--green)); }
-.tab-btn.active .tab-dot { background: #fff; }
-.tab-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--tab-dot, var(--ink-soft));
-  flex-shrink: 0;
-}
-#tabbtn-home { --tab-dot: var(--tab-home); }
-#tabbtn-carbon { --tab-dot: var(--tab-carbon); }
-#tabbtn-water { --tab-dot: var(--tab-water); }
-#tabbtn-energy { --tab-dot: var(--tab-energy); }
-#tabbtn-recycled { --tab-dot: var(--tab-recycled); }
-#tabbtn-sensitivity { --tab-dot: var(--tab-sensitivity); }
+.tab-btn:hover { color: var(--ink); background: var(--page-bg); }
+.tab-btn.active { color: var(--ink); border-bottom-color: var(--tab-accent, var(--green)); }
+#tabbtn-home { --tab-accent: var(--tab-home); }
+#tabbtn-carbon { --tab-accent: var(--tab-carbon); }
+#tabbtn-water { --tab-accent: var(--tab-water); }
+#tabbtn-energy { --tab-accent: var(--tab-energy); }
+#tabbtn-recycled { --tab-accent: var(--tab-recycled); }
+#tabbtn-sensitivity { --tab-accent: var(--tab-sensitivity); }
 
 main {
   max-width: 900px;
@@ -122,6 +113,11 @@ main {
 }
 .stat-label { font-size: 11.5px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.03em; }
 .stat-value { font-size: 19px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.stat-primary {
+  background: var(--green-pale);
+  border-color: var(--green);
+}
+.stat-primary .stat-value { font-size: 24px; color: var(--green-dark); }
 #stat-card-ecoCost { --stat-accent: var(--tab-home); }
 #stat-card-co2e { --stat-accent: var(--tab-carbon); }
 #stat-card-water { --stat-accent: var(--tab-water); }
@@ -201,17 +197,25 @@ main {
 .add-form {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+  padding: 12px;
+  background: var(--page-bg);
+  border-radius: 10px;
 }
 .add-form input, .add-form select {
-  padding: 8px 10px;
+  padding: 9px 11px;
   border: 1px solid var(--line);
   border-radius: 8px;
   font-size: 13.5px;
   flex: 1 1 160px;
   min-width: 0;
+  background: var(--card-bg);
+}
+.add-form input:focus, .add-form select:focus {
+  outline: 2px solid var(--green);
+  outline-offset: 1px;
 }
 
 .line-items { margin-bottom: 10px; }
@@ -346,6 +350,19 @@ main {
   color: var(--ink-soft);
   font-size: 12.5px;
 }
+.data-sources summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--ink-soft);
+  font-weight: 600;
+  padding: 4px 0;
+}
+.data-sources summary:hover { color: var(--ink); }
+.data-sources p {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
 
 .export-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line); }
 .btn-secondary {
@@ -369,9 +386,11 @@ main {
 
 /* --- Print / "Save as PDF" report: hide chrome, show a clean data report --- */
 @media print {
-  .tabs, .preset-row, .add-form, .btn-remove, .export-row, .site-footer, #part-form { display: none !important; }
+  .tabs, .preset-row, .add-form, .btn-remove, .export-row, #part-form { display: none !important; }
   .tab-panel { display: block !important; animation: none !important; }
   .card { box-shadow: none; border: 1px solid #999; break-inside: avoid; }
   body { background: #fff; }
   .site-header { background: none !important; color: #000 !important; padding: 0 0 12px; }
+  .data-sources summary { display: none; }
+  .data-sources p { display: block !important; }
 }

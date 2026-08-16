@@ -1,55 +1,41 @@
 # Eco-Cost Calculator
 
-A Life Cycle Assessment (LCA) tool with six tabs, each independently usable: a
-product-level eco-cost calculator (Home) plus five standalone single-purpose
-calculators for other environmental indicators.
+A Life Cycle Assessment (LCA) tool: build a product once on the Home tab and
+every other tab — Carbon footprint, Water consumption, Energy used in
+production, Recycled content, Sensitivity analysis — computes its indicator
+from that same product automatically. Nothing needs to be re-entered per tab.
 
-Home uses the single-indicator eco-costs method (in euro): build a product from
-parts (material + weight), optional processing and end-of-life treatment per
-part, assembly energy, transport, and any custom line item, and get an eco-cost
-breakdown with a hotspot chart, plus the ability to save and compare scenarios
-(base case vs. alternative material vs. closed-loop recycling, etc.). Two "Load
-example" presets (felt-tip pen, pencil body) are included as quick-start
-templates.
+Home uses the single-indicator eco-costs method (in euros) as its primary
+metric: build a product from parts (material + weight), optional processing
+and end-of-life treatment per part, assembly energy, transport, and any custom
+line item (which can carry its own eco-cost, carbon, water, and energy values).
+Two "Load example" presets (felt-tip pen, pencil body) are included as
+quick-start templates. Materials are picked via a searchable combobox (type to
+filter) rather than one long dropdown.
 
 ## Tabs
 
-- **Home** — the eco-cost product builder, plus an overview dashboard
-  previewing the current result from every other tab.
-- **Carbon footprint** — standalone: add energy sources and kWh used, get a
-  kg CO2e breakdown and hotspot chart.
-- **Water consumption** — standalone: same energy-usage inputs, litres
-  breakdown and hotspot chart.
-- **Energy used in production** — standalone: same energy-usage inputs, kWh
-  (embodied/cumulative energy demand) breakdown and hotspot chart.
-- **Recycled content** — standalone: add materials and weights, get a
-  weight-weighted % recycled content.
-- **Sensitivity analysis** — standalone: enter any base value, vary it by
-  ±10/20/50%, and see the resulting range.
+- **Home** — the product builder, plus an overview dashboard totalling every
+  indicator at once, the eco-cost breakdown/hotspot chart, and multi-indicator
+  scenario comparison.
+- **Carbon footprint** — kg CO2e breakdown and hotspot chart for the product
+  you built on Home.
+- **Water consumption** — litres breakdown and hotspot chart, same product.
+- **Energy used in production** — kWh (embodied/cumulative energy demand)
+  breakdown and hotspot chart, same product.
+- **Recycled content** — weight-weighted % recycled content across the parts
+  you built, with a radial meter and a list of any higher-recycled material
+  alternatives available in the reference data.
+- **Sensitivity analysis** — pick one input from the product you built (a
+  part's weight, the assembly energy amount, a transport leg, a custom line),
+  vary it by ±10/20/50%, and see how every indicator responds.
 
-Carbon footprint, Water consumption, and Energy used in production share one
-underlying list of energy-usage entries (source + kWh) — add an entry from any
-of the three tabs and all three totals update together, since they're all
-measured per kWh of the same energy use. Recycled content and Sensitivity
-analysis each keep entirely separate state. None of the five standalone tabs
-read from the Home product builder, or from each other.
-
-## Extra analysis & export
-
-- **Best case / worst case.** Carbon footprint, Water consumption, and Energy
-  used in production each show a range meter comparing your total against what
-  it would be if every entry had used the cleanest (or dirtiest) energy source
-  already in the reference data — grounded in the app's own data, not an
-  external benchmark.
-- **Higher-recycled alternatives.** The Recycled content tab flags any material
-  you've added that has a higher-recycled variant elsewhere in the reference
-  data (e.g. Aluminium (primary) → Aluminium (secondary), 100%).
-- **CSV export.** Every breakdown table (Home eco-cost, Carbon, Water, Energy,
-  Recycled) has an "Export CSV" button.
-- **Print / save as PDF.** The button on the Home overview card opens the
-  browser print dialog with a dedicated report layout (all tabs' data shown at
-  once, forms and buttons hidden) — use "Save as PDF" there for a shareable
-  report. No server or library involved; it's the browser's native print-to-PDF.
+Carbon, Water, and Energy also show a "best case / worst case" range meter:
+holding materials/transport/end-of-life fixed, how far would the total move if
+assembly energy alone used the cleanest vs. dirtiest source already in the
+reference data. Every breakdown table has a CSV export button, and the Home
+overview card has a "Print / save as PDF" button that opens a dedicated report
+layout via the browser's native print dialog.
 
 ## Running it
 
