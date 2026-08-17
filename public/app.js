@@ -1007,6 +1007,27 @@ function applyAiPartSuggestions(suggestions) {
   return { added, skipped };
 }
 
+// Live elapsed-time counter while an AI request is in flight — there's no real
+// progress signal from a single completion call, so this counts up actual elapsed
+// seconds against a rough typical-duration estimate, rather than a fake progress bar.
+let aiTimerHandle = null;
+
+function startAiTimer(estimateLabel) {
+  stopAiTimer();
+  const status = document.getElementById('ai-status');
+  const startedAt = Date.now();
+  const tick = () => {
+    const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+    status.textContent = `Thinking… ${elapsed}s elapsed (usually ${estimateLabel})`;
+  };
+  tick();
+  aiTimerHandle = setInterval(tick, 1000);
+}
+
+function stopAiTimer() {
+  if (aiTimerHandle) { clearInterval(aiTimerHandle); aiTimerHandle = null; }
+}
+
 async function extractPartsWithAI() {
   const textarea = document.getElementById('ai-description');
   const fileInput = document.getElementById('ai-file-input');
@@ -1014,7 +1035,8 @@ async function extractPartsWithAI() {
 
   let ok, data;
   if (aiAttachedFile) {
-    status.textContent = 'Reading and thinking…';
+    const isImage = aiAttachedFile.type.startsWith('image/');
+    startAiTimer(isImage ? '15-25s for images' : '10-20s for documents');
     const formData = new FormData();
     formData.append('file', aiAttachedFile);
     const res = await fetch('/api/ai-extract-parts-from-file', { method: 'POST', body: formData, credentials: 'same-origin' });
@@ -1023,9 +1045,10 @@ async function extractPartsWithAI() {
   } else {
     const description = textarea.value.trim();
     if (!description) { status.textContent = 'Describe the product or attach a file first.'; return; }
-    status.textContent = 'Thinking…';
+    startAiTimer('5-10s for text');
     ({ ok, data } = await api('/api/ai-extract-parts', { method: 'POST', body: { description } }));
   }
+  stopAiTimer();
 
   if (!ok) { status.textContent = data.error || 'AI extraction failed.'; return; }
 
