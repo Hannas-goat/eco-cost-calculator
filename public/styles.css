@@ -35,6 +35,7 @@ body {
 }
 
 .site-header {
+  position: relative;
   background: linear-gradient(135deg, var(--green-dark), var(--green));
   color: #fff;
   padding: 32px 24px;
@@ -42,6 +43,61 @@ body {
 }
 .site-header h1 { margin: 0 0 8px; font-size: 28px; }
 .site-header .subtitle { margin: 0; max-width: 640px; margin-inline: auto; opacity: 0.92; font-size: 15px; }
+
+/* Account: a compact corner widget instead of a page section, so it's reachable
+   from every tab without taking up content space. */
+.account-corner {
+  position: absolute;
+  top: 16px;
+  right: 24px;
+  text-align: left;
+  z-index: 40;
+}
+.account-corner-toggle {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-corner-toggle:hover { background: rgba(255, 255, 255, 0.28); }
+.account-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 280px;
+  background: var(--card-bg);
+  color: var(--ink);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(11, 11, 11, 0.25);
+  padding: 16px;
+  text-align: left;
+}
+.account-menu input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13.5px;
+  margin-bottom: 8px;
+}
+.account-menu-actions { display: flex; gap: 8px; }
+.account-menu-actions .btn-primary, .account-menu-actions .btn-secondary { flex: 1; }
+.account-menu #auth-import-row { margin: 10px 0; }
+.account-menu .hint { margin: 4px 0 10px; }
+
+@media (max-width: 640px) {
+  .site-header { padding-top: 60px; }
+  .account-corner { top: 12px; right: 12px; left: 12px; text-align: right; }
+  .account-menu { left: 0; width: auto; }
+}
 
 .tabs {
   max-width: 1600px;
@@ -104,7 +160,7 @@ main {
   align-items: start;
   gap: 24px;
 }
-#builder-card { grid-column: 1 / -1; }
+#overview-card, #builder-card { grid-column: 1 / -1; }
 @media (max-width: 860px) {
   #tab-home { grid-template-columns: 1fr; }
 }
@@ -407,26 +463,6 @@ main {
 .preset-check-ok { background: var(--green-pale); color: var(--green-dark); border: 1px solid var(--green); }
 .preset-check-fail { background: var(--red-pale); color: var(--red); border: 1px solid var(--red); }
 
-/* Account card: deliberately the most visually prominent card on Home, so
-   signing in isn't easy to scroll past. */
-#account-card {
-  background: linear-gradient(135deg, var(--green-dark), var(--green));
-  border: none;
-  color: #fff;
-}
-#account-card h2 { color: #fff; font-size: 21px; }
-#account-card .hint { color: rgba(255, 255, 255, 0.88); }
-#account-card strong { color: #fff; }
-#account-card .add-form { background: rgba(255, 255, 255, 0.12); }
-#account-card .add-form input {
-  background: rgba(255, 255, 255, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-}
-#account-card .btn-primary { background: #fff; color: var(--green-dark); font-weight: 700; }
-#account-card .btn-primary:hover { background: #eafbf0; }
-#account-card .btn-secondary { background: transparent; color: #fff; border: 1px solid rgba(255, 255, 255, 0.6); }
-#account-card .btn-secondary:hover { background: rgba(255, 255, 255, 0.15); }
-#account-card #auth-message { color: #fff; font-weight: 600; }
 
 .site-footer {
   max-width: 1600px;

@@ -1095,13 +1095,31 @@ function renderAccountUI() {
   document.getElementById('account-signed-in').style.display = currentUser ? '' : 'none';
   if (currentUser) document.getElementById('auth-user-email').textContent = currentUser.email;
 
+  const toggle = document.getElementById('account-toggle-btn');
+  toggle.textContent = currentUser ? `👤 ${currentUser.email}` : '👤 Sign in';
+
   const hasLocalScenarios = loadLocalScenarios().length > 0;
   document.getElementById('auth-import-row').style.display = (currentUser && hasLocalScenarios) ? '' : 'none';
 
   document.getElementById('scenarios-storage-note').textContent = currentUser
     ? '(saved to your account)'
-    : '(saved only in this browser — sign in above to save to your account)';
+    : '(saved only in this browser — sign in via the account menu, top right, to save to your account)';
 }
+
+function toggleAccountMenu() {
+  const menu = document.getElementById('account-menu');
+  menu.style.display = menu.style.display === 'none' ? '' : 'none';
+}
+
+function closeAccountMenu() {
+  document.getElementById('account-menu').style.display = 'none';
+}
+
+// Close the menu on outside click, without swallowing the toggle button's own click.
+document.addEventListener('click', (e) => {
+  const corner = document.getElementById('account-corner');
+  if (corner && !corner.contains(e.target)) closeAccountMenu();
+});
 
 async function authSignUp() {
   const email = document.getElementById('auth-email').value.trim();
@@ -1114,6 +1132,7 @@ async function authSignUp() {
   currentUser = data.user;
   msg.textContent = '';
   renderAccountUI();
+  closeAccountMenu();
   await renderScenarios();
 }
 
@@ -1128,11 +1147,13 @@ async function authLogIn() {
   currentUser = data.user;
   msg.textContent = '';
   renderAccountUI();
+  closeAccountMenu();
   await renderScenarios();
 }
 
 async function authLogOut() {
   await api('/api/logout', { method: 'POST' });
+  closeAccountMenu();
   currentUser = null;
   renderAccountUI();
   await renderScenarios();

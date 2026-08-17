@@ -9,6 +9,30 @@
 <body>
 
 <header class="site-header">
+  <div class="account-corner" id="account-corner">
+    <button type="button" class="account-corner-toggle" id="account-toggle-btn" onclick="toggleAccountMenu()">👤 Sign in</button>
+    <div class="account-menu" id="account-menu" style="display:none;">
+      <div id="account-signed-out">
+        <p class="hint">Sign in to save your builds to your account and access them from any device. Without an account, builds are saved only in this browser.</p>
+        <form onsubmit="return false;">
+          <input type="email" id="auth-email" placeholder="Email" autocomplete="email">
+          <input type="password" id="auth-password" placeholder="Password (min 6 characters)" autocomplete="current-password">
+          <div class="account-menu-actions">
+            <button type="button" class="btn-primary" onclick="authSignUp()">Sign up →</button>
+            <button type="button" class="btn-secondary" onclick="authLogIn()">Log in</button>
+          </div>
+        </form>
+        <div id="auth-message" class="hint"></div>
+      </div>
+      <div id="account-signed-in" style="display:none;">
+        <p class="hint">Signed in as <strong id="auth-user-email"></strong>. Your saved builds are stored on your account.</p>
+        <div id="auth-import-row" style="display:none;">
+          <button type="button" class="btn-secondary" onclick="importLocalScenarios()">⬆ Import builds saved in this browser</button>
+        </div>
+        <button type="button" class="btn-secondary" onclick="authLogOut()">Log out</button>
+      </div>
+    </div>
+  </div>
   <h1>🌱 Eco-Cost Calculator</h1>
   <p class="subtitle">Build a product from materials, processing, transport and end-of-life, and get a full Life Cycle Assessment breakdown using the single-indicator eco-costs method.</p>
 </header>
@@ -26,27 +50,6 @@
 
   <!-- ===== HOME ===== -->
   <section id="tab-home" class="tab-panel">
-
-    <section class="card" id="account-card">
-      <h2>👤 Account</h2>
-      <div id="account-signed-out">
-        <p class="hint">Sign in to save your builds to your account and access them from any device. Without an account, builds are saved only in this browser.</p>
-        <form class="add-form" onsubmit="return false;">
-          <input type="email" id="auth-email" placeholder="Email" autocomplete="email">
-          <input type="password" id="auth-password" placeholder="Password (min 6 characters)" autocomplete="current-password">
-          <button type="button" class="btn-primary" onclick="authSignUp()">Sign up →</button>
-          <button type="button" class="btn-secondary" onclick="authLogIn()">Log in</button>
-        </form>
-        <div id="auth-message" class="hint"></div>
-      </div>
-      <div id="account-signed-in" style="display:none;">
-        <p class="hint">Signed in as <strong id="auth-user-email"></strong>. Your saved builds below are stored on your account.</p>
-        <div id="auth-import-row" style="display:none;" class="export-row">
-          <button type="button" class="btn-secondary" onclick="importLocalScenarios()">⬆ Import builds saved in this browser into my account</button>
-        </div>
-        <button type="button" class="btn-secondary" onclick="authLogOut()">Log out</button>
-      </div>
-    </section>
 
     <section class="card" id="overview-card">
       <h2>📈 Overview — all impact indicators</h2>
