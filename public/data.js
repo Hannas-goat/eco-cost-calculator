@@ -197,3 +197,11 @@ const PRESET_EXAMPLES = {
     parts: [{ name: 'Body', materialId: 'al-trademix', weight: 4, processId: 'extrude-al', endOfLifeId: 'recycle-al-closed' }],
   },
 };
+
+// Dual-purpose: a plain <script> tag in the browser (module is undefined there,
+// so this is a no-op), or `require('./public/data.js')` from server.js — lets
+// the AI-extraction endpoint reuse the exact same material/process/EoL names
+// instead of duplicating this list server-side and risking it drifting out of sync.
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { COUNTRIES, MATERIALS, PROCESSES, ENERGY, TRANSPORT, END_OF_LIFE, PRESET_EXAMPLES };
+}

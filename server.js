@@ -6,11 +6,23 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { createClient } = require('@libsql/client');
+const { MATERIALS, PROCESSES, END_OF_LIFE } = require('./public/data.js');
 
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET;
 const COOKIE_NAME = 'ecocost_session';
 const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+
+// AI part extraction (optional — NVIDIA's OpenAI-compatible API, https://build.nvidia.com).
+// NVIDIA_API_KEY is a secret and must only ever live here as a server env var, never in
+// any file served to the browser. Model/base URL are overridable in case the default
+// model name below ever changes or you want a different one from NVIDIA's catalog.
+const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
+const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
+const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'meta/llama-3.1-70b-instruct';
+if (!NVIDIA_API_KEY) {
+  console.warn('NVIDIA_API_KEY not set — AI part extraction is disabled (everything else still works).');
+}
 
 if (!JWT_SECRET) {
   console.error(
@@ -184,6 +196,88 @@ app.post('/api/scenarios', requireAuth, async (req, res) => {
 app.delete('/api/scenarios/:id', requireAuth, async (req, res) => {
   await db.execute({ sql: 'DELETE FROM scenarios WHERE id = ? AND user_id = ?', args: [req.params.id, req.userId] });
   res.status(204).end();
+});
+
+// --- AI part extraction ---
+const aiLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 10, // stricter than auth -- this hits a paid external API
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many AI requests — please wait a few minutes and try again.' },
+});
+
+const MATERIAL_NAMES = MATERIALS.map((m) => m.name);
+const PROCESS_NAMES = PROCESSES.map((p) => p.name);
+const EOL_NAMES = END_OF_LIFE.map((e) => e.name);
+
+function buildExtractionPrompt() {
+  return `You extract structured part data from a free-text product description for a Life Cycle Assessment calculator.
+Respond with ONLY valid JSON (no markdown fences, no commentary before or after), matching exactly this shape:
+{"parts":[{"name":string,"material":string|null,"weight":number|null,"process":string|null,"endOfLife":string|null}]}
+
+Rules:
+- "material" must be copied EXACTLY (character-for-character) from this list, or null if nothing in the text clearly matches: ${MATERIAL_NAMES.join(' | ')}
+- "process" must be copied EXACTLY from this list, or null if not mentioned: ${PROCESS_NAMES.join(' | ')}
+- "endOfLife" must be copied EXACTLY from this list, or null if not mentioned: ${EOL_NAMES.join(' | ')}
+- "weight" is in kilograms as a plain number (convert other units), or null if not stated.
+- Create one entry in "parts" per distinct physical component described. A single simple product is one entry.
+- Never invent a material/process/end-of-life name that isn't character-for-character in the lists above -- use null instead.
+- Do not guess a material out of thin air just because a part was mentioned -- only set it when the text actually indicates a material.`;
+}
+
+app.post('/api/ai-extract-parts', aiLimiter, async (req, res) => {
+  if (!NVIDIA_API_KEY) {
+    return res.status(503).json({ error: 'AI extraction is not configured on this server yet (NVIDIA_API_KEY not set).' });
+  }
+  const description = typeof req.body?.description === 'string' ? req.body.description.trim() : '';
+  if (!description) return res.status(400).json({ error: 'Describe the product first.' });
+  if (description.length > 4000) return res.status(400).json({ error: 'Description is too long (max 4000 characters).' });
+
+  let aiRes;
+  try {
+    aiRes = await fetch(`${NVIDIA_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${NVIDIA_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: NVIDIA_MODEL,
+        messages: [
+          { role: 'system', content: buildExtractionPrompt() },
+          { role: 'user', content: description },
+        ],
+        temperature: 0.1,
+        max_tokens: 1024,
+      }),
+    });
+  } catch (e) {
+    return res.status(502).json({ error: 'Could not reach the AI service: ' + e.message });
+  }
+
+  if (!aiRes.ok) {
+    const errText = await aiRes.text().catch(() => '');
+    return res.status(502).json({ error: `AI service error (${aiRes.status}): ${errText.slice(0, 200)}` });
+  }
+
+  const data = await aiRes.json().catch(() => null);
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string') {
+    return res.status(502).json({ error: 'AI response was missing the expected content.' });
+  }
+
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return res.status(502).json({ error: 'AI response did not contain JSON.' });
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    return res.status(502).json({ error: 'Could not parse the AI response as JSON.' });
+  }
+  if (!Array.isArray(parsed.parts)) {
+    return res.status(502).json({ error: 'AI response was missing a "parts" array.' });
+  }
+
+  res.json({ parts: parsed.parts.slice(0, 30) }); // cap so a runaway response can't flood the page
 });
 
 // --- Static frontend ---

@@ -91,6 +91,33 @@ exact expected format. Material/process/end-of-life names must match an
 entry in `data.js` (case-insensitive); rows that don't match are skipped with
 an explanation rather than silently dropped or guessed at.
 
+## AI part extraction (optional)
+
+A third way to fill in parts: describe the product in plain language in the
+"Or describe it in plain language" box on Home, and an AI call (via NVIDIA's
+OpenAI-compatible API, `https://build.nvidia.com`) extracts structured parts
+from it — matched against the real material/process/end-of-life names in
+`data.js`, same validation as the CSV upload, so a name the AI gets wrong
+never silently becomes a real part (it's skipped with an explanation
+instead). Suggestions are added directly to the product; review them before
+trusting the numbers.
+
+This calls the AI from the **server**, never the browser — the API key is a
+secret credential and must never end up in any file shipped to the client.
+To enable it:
+
+1. Get an API key from [build.nvidia.com](https://build.nvidia.com).
+2. Set `NVIDIA_API_KEY` as an environment variable on your Render service
+   (Environment tab — same place as `JWT_SECRET`/`TURSO_*`). Optionally set
+   `NVIDIA_MODEL` (defaults to `meta/llama-3.1-70b-instruct`) or
+   `NVIDIA_BASE_URL` if you want a different model/endpoint from NVIDIA's
+   catalog.
+
+Until `NVIDIA_API_KEY` is set, the feature returns a clear "not configured"
+message and everything else keeps working exactly as before — same pattern
+as the optional Supabase/Turso setup elsewhere in this README. Rate-limited
+server-side (10 requests / 10 minutes per IP) since it hits a paid API.
+
 ## Accounts
 
 Optional — the calculator works fully without signing in; saved scenarios

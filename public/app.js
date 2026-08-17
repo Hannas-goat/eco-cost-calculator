@@ -950,6 +950,54 @@ function uploadPartsCsv(event) {
   event.target.value = ''; // allow re-uploading the same file name after a fix
 }
 
+// --- AI part extraction: free-text description -> parts, via the backend (never
+// calls the AI provider directly from the browser -- the API key must stay server-side).
+// Matching against MATERIALS/PROCESSES/END_OF_LIFE happens here, same as CSV upload,
+// so a made-up name the AI might return never silently becomes a real part.
+async function extractPartsWithAI() {
+  const textarea = document.getElementById('ai-description');
+  const status = document.getElementById('ai-status');
+  const description = textarea.value.trim();
+  if (!description) { status.textContent = 'Describe the product first.'; return; }
+
+  status.textContent = 'Thinking…';
+  const { ok, data } = await api('/api/ai-extract-parts', { method: 'POST', body: { description } });
+  if (!ok) { status.textContent = data.error || 'AI extraction failed.'; return; }
+
+  const suggestions = Array.isArray(data.parts) ? data.parts : [];
+  let added = 0;
+  const skipped = [];
+  for (const s of suggestions) {
+    const name = String(s.name || 'Part').slice(0, 60);
+    const materialName = s.material ? String(s.material) : '';
+    const material = materialName ? MATERIALS.find(m => m.name.toLowerCase() === materialName.toLowerCase()) : null;
+    const weight = Number(s.weight);
+    if (!material || !weight || weight <= 0) {
+      skipped.push(`${name} (${!material ? `no matching material for "${materialName || 'none given'}"` : 'missing/invalid weight'})`);
+      continue;
+    }
+    const processName = s.process ? String(s.process) : '';
+    const process = processName ? PROCESSES.find(p => p.name.toLowerCase() === processName.toLowerCase()) : null;
+    const eolName = s.endOfLife ? String(s.endOfLife) : '';
+    const eol = eolName ? END_OF_LIFE.find(e => e.name.toLowerCase() === eolName.toLowerCase()) : null;
+
+    product.parts.push({
+      id: nextLineId++, name, materialId: material.id, weight,
+      processId: process ? process.id : null, endOfLifeId: eol ? eol.id : 'none',
+    });
+    added++;
+  }
+
+  status.textContent = added
+    ? `AI added ${added} part(s) — review them below before trusting the numbers.${skipped.length ? ` Skipped: ${skipped.join('; ')}.` : ''}`
+    : `No usable parts found.${skipped.length ? ` (${skipped.join('; ')})` : ' Try describing the material and weight more explicitly.'}`;
+  if (added) {
+    textarea.value = '';
+    activePresetKey = null;
+    renderAll();
+  }
+}
+
 const CSV_EXPORTERS = {
   eco: () => {
     const items = computeLineItems();
