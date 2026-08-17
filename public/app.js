@@ -3,7 +3,7 @@
 // carbon, water, energy, and recycled content all compute from it — Carbon /
 // Water / Energy / Recycled tabs are read-only breakdown views of this same
 // product, not separate data-entry tools.
-let product = { parts: [], assembly: null, transportLegs: [], customLines: [] };
+let product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [] };
 let nextLineId = 1;
 let activePresetKey = null; // set when a preset is loaded, so we can show the validation check
 
@@ -169,6 +169,11 @@ function initDropdowns() {
   document.getElementById('transport-distance').addEventListener('input', updateTransportPreview);
   document.getElementById('transport-mode').addEventListener('change', updateTransportPreview);
   updateTransportPreview();
+
+  const countryOptions = COUNTRIES.map(c => `<option value="${c}">${c}</option>`).join('');
+  document.getElementById('trade-made-in').innerHTML = countryOptions;
+  document.getElementById('trade-imported-from').innerHTML = countryOptions;
+  document.getElementById('trade-exported-to').innerHTML = countryOptions;
 }
 
 // Searchable material combobox: a text input + <datalist>, scoped to the chosen
@@ -262,10 +267,33 @@ function addCustomLine() {
   renderAll();
 }
 
+// Trade: a purely financial line (country made in, imported-from/exported-to countries,
+// and their costs) — contributes to eco-cost only, not carbon/water/energy, since it's a
+// customs/logistics fee rather than an environmental impact. Costs are typed in the
+// selected currency and stored internally in euros, same as the custom-line-item input.
+function addTradeLine() {
+  const madeIn = document.getElementById('trade-made-in').value;
+  const importedFrom = document.getElementById('trade-imported-from').value;
+  const exportedTo = document.getElementById('trade-exported-to').value;
+  const rate = exchangeRates[currentCurrency] || 1;
+  const importCost = (Number(document.getElementById('trade-import-cost').value) || 0) / rate;
+  const exportCost = (Number(document.getElementById('trade-export-cost').value) || 0) / rate;
+  if (!importCost && !exportCost) {
+    alert('Enter an import cost and/or an export cost.');
+    return;
+  }
+  product.tradeLines.push({ id: nextLineId++, madeIn, importedFrom, exportedTo, importCost, exportCost });
+  document.getElementById('trade-import-cost').value = '';
+  document.getElementById('trade-export-cost').value = '';
+  activePresetKey = null;
+  renderAll();
+}
+
 function removeLine(kind, id) {
   if (kind === 'part') product.parts = product.parts.filter(p => p.id !== id);
   if (kind === 'transport') product.transportLegs = product.transportLegs.filter(t => t.id !== id);
   if (kind === 'custom') product.customLines = product.customLines.filter(c => c.id !== id);
+  if (kind === 'trade') product.tradeLines = product.tradeLines.filter(t => t.id !== id);
   activePresetKey = null;
   renderAll();
 }
@@ -281,7 +309,7 @@ function totalPartsWeight(p = product) {
 }
 
 function clearProduct() {
-  product = { parts: [], assembly: null, transportLegs: [], customLines: [] };
+  product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [] };
   activePresetKey = null;
   renderAll();
 }
@@ -385,6 +413,21 @@ function computeLineItems(p = product) {
     });
   }
 
+  // (p.tradeLines || []) — scenarios saved before this feature existed won't have this
+  // field at all; treat that as "no trade lines" rather than crashing.
+  for (const trade of (p.tradeLines || [])) {
+    const detail = `Made in ${trade.madeIn}, imported from ${trade.importedFrom}, exported to ${trade.exportedTo} — financial trade cost, not an environmental impact`;
+    items.push({
+      label: `Trade: ${trade.madeIn}`,
+      details: { ecoCost: detail, co2e: detail, water: detail, energyIn: detail },
+      kind: 'trade',
+      ecoCost: (trade.importCost || 0) + (trade.exportCost || 0),
+      co2e: 0,
+      water: 0,
+      energyIn: 0,
+    });
+  }
+
   return items;
 }
 
@@ -456,11 +499,25 @@ function renderCustom() {
     : '<p class="hint">No custom lines yet.</p>';
 }
 
+function renderTradeLines() {
+  const el = document.getElementById('trade-list');
+  el.innerHTML = product.tradeLines.length
+    ? product.tradeLines.map(t => lineItemRow('trade', t.id, `Made in ${t.madeIn}`,
+        `Imported from ${t.importedFrom} (${fmtMetric(t.importCost, 'ecoCost')}) · Exported to ${t.exportedTo} (${fmtMetric(t.exportCost, 'ecoCost')})`)).join('')
+    : '<p class="hint">No trade lines yet.</p>';
+}
+
 // Custom-line eco-cost placeholder follows the selected currency, so the input itself
 // never shows a euro label when a different currency is active.
 function updateCustomValuePlaceholder() {
-  const input = document.getElementById('custom-value');
-  if (input) input.placeholder = `Eco-cost (${currentCurrency === 'EUR' ? 'euros' : currentCurrency})`;
+  const unit = currentCurrency === 'EUR' ? 'euros' : currentCurrency;
+  const setPlaceholder = (id, label) => {
+    const input = document.getElementById(id);
+    if (input) input.placeholder = `${label} (${unit})`;
+  };
+  setPlaceholder('custom-value', 'Eco-cost');
+  setPlaceholder('trade-import-cost', 'Import cost');
+  setPlaceholder('trade-export-cost', 'Export cost');
 }
 
 // --- Shared breakdown table + hotspot chart renderer, reused by every metric tab ---
@@ -684,6 +741,7 @@ function sensitivityTargets() {
     targets.push({ id: `transport:${t.id}`, label: `Transport: ${transport.name} (distance)` });
   });
   product.customLines.forEach(c => targets.push({ id: `custom:${c.id}`, label: `Custom: ${c.name}` }));
+  product.tradeLines.forEach(t => targets.push({ id: `trade:${t.id}`, label: `Trade: made in ${t.madeIn} (import + export cost)` }));
   return targets;
 }
 
@@ -719,6 +777,12 @@ function buildScaledProduct(targetId, factor) {
       c.co2e = (c.co2e || 0) * factor;
       c.water = (c.water || 0) * factor;
       c.energyIn = (c.energyIn || 0) * factor;
+    }
+  } else if (type === 'trade') {
+    const t = clone.tradeLines.find(x => x.id === id);
+    if (t) {
+      t.importCost = (t.importCost || 0) * factor;
+      t.exportCost = (t.exportCost || 0) * factor;
     }
   }
   return clone;
@@ -826,6 +890,7 @@ function renderAll() {
   renderAssembly();
   renderTransport();
   renderCustom();
+  renderTradeLines();
 
   const items = computeLineItems();
   renderOverview(items);
@@ -854,7 +919,7 @@ function renderAll() {
 // --- Presets ---
 function loadPreset(key) {
   const preset = PRESET_EXAMPLES[key];
-  product = { parts: [], assembly: null, transportLegs: [], customLines: [] };
+  product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [] };
   for (const p of preset.parts) {
     product.parts.push({
       id: nextLineId++, name: p.name, materialId: p.materialId, weight: p.weight,
@@ -1007,7 +1072,8 @@ async function loadScenario(id) {
     loadedProduct = scenario.product;
   }
   product = loadedProduct;
-  nextLineId = Math.max(1, ...[...product.parts, ...product.transportLegs, ...product.customLines].map(x => x.id + 1));
+  if (!product.tradeLines) product.tradeLines = []; // scenarios saved before this feature existed
+  nextLineId = Math.max(1, ...[...product.parts, ...product.transportLegs, ...product.customLines, ...product.tradeLines].map(x => x.id + 1));
   activePresetKey = null;
   renderAll();
   showTab('home');

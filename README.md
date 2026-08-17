@@ -50,6 +50,18 @@ previously cached rates, or to euros, if the lookup fails). The preset
 reference-total checks always stay in euros (they're validating against known
 source figures), and CSV exports stay in raw euros too, for data portability.
 
+## Trade
+
+A "Trade" section on Home lets you record where a product was made and its
+import/export costs: pick a "made in" country plus separate "imported from"
+and "exported to" countries, and enter an import cost and/or export cost
+(in your selected currency). This is a **financial cost only** — it adds to
+the eco-cost total but contributes nothing to carbon/water/energy, since a
+customs or logistics fee isn't itself an environmental impact. There's no
+built-in tariff-rate lookup by country pair; real-time trade tariff data
+isn't something this app has a legitimate source for, so the cost is always
+whatever you enter.
+
 ## Optimization hints
 
 Wherever a lower-impact alternative already exists in the reference data for

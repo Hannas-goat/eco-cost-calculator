@@ -1,3 +1,28 @@
+// Country list for the Trade section (country made in / imported from / exported to) —
+// just standard country names for labeling; no per-country cost or tariff data is looked
+// up automatically. The user enters the actual import/export cost themselves, since
+// real-time tariff rates aren't something this app has a legitimate source for.
+const COUNTRIES = [
+  'Afghanistan', 'Albania', 'Algeria', 'Argentina', 'Armenia', 'Australia', 'Austria',
+  'Azerbaijan', 'Bahrain', 'Bangladesh', 'Belarus', 'Belgium', 'Bolivia',
+  'Bosnia and Herzegovina', 'Brazil', 'Brunei', 'Bulgaria', 'Cambodia', 'Cameroon',
+  'Canada', 'Chile', 'China', 'Colombia', 'Costa Rica', 'Croatia', 'Cuba', 'Cyprus',
+  'Czechia', 'Denmark', 'Dominican Republic', 'Ecuador', 'Egypt', 'El Salvador',
+  'Estonia', 'Ethiopia', 'Finland', 'France', 'Georgia', 'Germany', 'Ghana', 'Greece',
+  'Guatemala', 'Honduras', 'Hong Kong', 'Hungary', 'Iceland', 'India', 'Indonesia',
+  'Iran', 'Iraq', 'Ireland', 'Israel', 'Italy', 'Ivory Coast', 'Jamaica', 'Japan',
+  'Jordan', 'Kazakhstan', 'Kenya', 'Kuwait', 'Latvia', 'Lebanon', 'Libya',
+  'Liechtenstein', 'Lithuania', 'Luxembourg', 'Malaysia', 'Malta', 'Mexico', 'Moldova',
+  'Monaco', 'Mongolia', 'Morocco', 'Myanmar', 'Nepal', 'Netherlands', 'New Zealand',
+  'Nicaragua', 'Nigeria', 'North Korea', 'North Macedonia', 'Norway', 'Oman', 'Pakistan',
+  'Panama', 'Paraguay', 'Peru', 'Philippines', 'Poland', 'Portugal', 'Qatar', 'Romania',
+  'Russia', 'Saudi Arabia', 'Serbia', 'Singapore', 'Slovakia', 'Slovenia',
+  'South Africa', 'South Korea', 'Spain', 'Sri Lanka', 'Sweden', 'Switzerland',
+  'Syria', 'Taiwan', 'Thailand', 'Tunisia', 'Turkey', 'Ukraine',
+  'United Arab Emirates', 'United Kingdom', 'United States', 'Uruguay', 'Uzbekistan',
+  'Venezuela', 'Vietnam', 'Yemen',
+];
+
 // Eco-cost reference data, based on Idematapp/ecocostsvalue.com reference data
 // (2020 excerpts). Covers common materials, processes, energy, and transport modes —
 // use "Custom material / process" for anything not listed here. Eco-costs are in
