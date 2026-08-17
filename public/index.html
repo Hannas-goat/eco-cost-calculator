@@ -113,44 +113,52 @@
       </form>
       <div class="hint-inline" id="material-preview"></div>
 
-      <h3>⚡ Assembly energy <span class="hint-inline">(applied to the total weight of the product)</span></h3>
-      <div id="assembly-line" class="line-items"></div>
-      <form class="add-form" onsubmit="return false;">
-        <select id="assembly-energy"></select>
-        <input type="number" id="assembly-mj-per-kg" placeholder="MJ per kg of product" min="0" step="any">
-        <button type="button" class="btn-primary" onclick="setAssembly()">Set assembly energy →</button>
-      </form>
+      <details class="builder-section" id="assembly-details">
+        <summary>⚡ Assembly energy <span class="hint-inline">(applied to the total weight of the product)</span></summary>
+        <div id="assembly-line" class="line-items"></div>
+        <form class="add-form" onsubmit="return false;">
+          <select id="assembly-energy"></select>
+          <input type="number" id="assembly-mj-per-kg" placeholder="MJ per kg of product" min="0" step="any">
+          <button type="button" class="btn-primary" onclick="setAssembly()">Set assembly energy →</button>
+        </form>
+      </details>
 
-      <h3>🚚 Transport</h3>
-      <div id="transport-list" class="line-items"></div>
-      <form id="transport-form" class="add-form" onsubmit="return false;">
-        <select id="transport-mode"></select>
-        <input type="number" id="transport-distance" placeholder="Distance (km)" min="0" step="any">
-        <span class="hint-inline" id="transport-tkm-preview"></span>
-        <button type="button" class="btn-primary" onclick="addTransport()">Add transport leg →</button>
-      </form>
+      <details class="builder-section" id="transport-details">
+        <summary>🚚 Transport</summary>
+        <div id="transport-list" class="line-items"></div>
+        <form id="transport-form" class="add-form" onsubmit="return false;">
+          <select id="transport-mode"></select>
+          <input type="number" id="transport-distance" placeholder="Distance (km)" min="0" step="any">
+          <span class="hint-inline" id="transport-tkm-preview"></span>
+          <button type="button" class="btn-primary" onclick="addTransport()">Add transport leg →</button>
+        </form>
+      </details>
 
-      <h3>✏️ Custom line item <span class="hint-inline">(any known impact not covered above)</span></h3>
-      <div id="custom-list" class="line-items"></div>
-      <form class="add-form" onsubmit="return false;">
-        <input type="text" id="custom-name" placeholder="Description (e.g. Packaging)">
-        <input type="number" id="custom-value" placeholder="Eco-cost (euros)" step="any">
-        <input type="number" id="custom-co2e" placeholder="Carbon (kg CO2e)" step="any">
-        <input type="number" id="custom-water" placeholder="Water (L)" step="any">
-        <input type="number" id="custom-energy" placeholder="Energy (kWh)" step="any">
-        <button type="button" class="btn-primary" onclick="addCustomLine()">Add custom line →</button>
-      </form>
+      <details class="builder-section" id="custom-details">
+        <summary>✏️ Custom line item <span class="hint-inline">(any known impact not covered above)</span></summary>
+        <div id="custom-list" class="line-items"></div>
+        <form class="add-form" onsubmit="return false;">
+          <input type="text" id="custom-name" placeholder="Description (e.g. Packaging)">
+          <input type="number" id="custom-value" placeholder="Eco-cost (euros)" step="any">
+          <input type="number" id="custom-co2e" placeholder="Carbon (kg CO2e)" step="any">
+          <input type="number" id="custom-water" placeholder="Water (L)" step="any">
+          <input type="number" id="custom-energy" placeholder="Energy (kWh)" step="any">
+          <button type="button" class="btn-primary" onclick="addCustomLine()">Add custom line →</button>
+        </form>
+      </details>
 
-      <h3>🌍 Trade <span class="hint-inline">(import/export cost — a financial cost, not an environmental impact)</span></h3>
-      <div id="trade-list" class="line-items"></div>
-      <form class="add-form" onsubmit="return false;">
-        <select id="trade-made-in" aria-label="Country made in"></select>
-        <select id="trade-imported-from" aria-label="Imported from"></select>
-        <input type="number" id="trade-import-cost" placeholder="Import cost (euros)" step="any">
-        <select id="trade-exported-to" aria-label="Exported to"></select>
-        <input type="number" id="trade-export-cost" placeholder="Export cost (euros)" step="any">
-        <button type="button" class="btn-primary" onclick="addTradeLine()">Add trade line →</button>
-      </form>
+      <details class="builder-section" id="trade-details">
+        <summary>🌍 Trade <span class="hint-inline">(import/export cost — a financial cost, not an environmental impact)</span></summary>
+        <div id="trade-list" class="line-items"></div>
+        <form class="add-form" onsubmit="return false;">
+          <select id="trade-made-in" aria-label="Country made in"></select>
+          <select id="trade-imported-from" aria-label="Imported from"></select>
+          <input type="number" id="trade-import-cost" placeholder="Import cost (euros)" step="any">
+          <select id="trade-exported-to" aria-label="Exported to"></select>
+          <input type="number" id="trade-export-cost" placeholder="Export cost (euros)" step="any">
+          <button type="button" class="btn-primary" onclick="addTradeLine()">Add trade line →</button>
+        </form>
+      </details>
     </section>
 
     <section class="card" id="results-card">

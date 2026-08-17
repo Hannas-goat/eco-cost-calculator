@@ -484,8 +484,17 @@ function renderParts() {
     : '<p class="hint">No parts yet.</p>';
 }
 
+// Assembly/Transport/Custom/Trade are collapsed by default to keep the builder
+// uncluttered — but auto-expand if they already hold data (e.g. from a loaded
+// preset or scenario), so nothing configured stays hidden from view.
+function openDetailsIfContent(detailsId, hasContent) {
+  const details = document.getElementById(detailsId);
+  if (details && hasContent) details.open = true;
+}
+
 function renderAssembly() {
   const el = document.getElementById('assembly-line');
+  openDetailsIfContent('assembly-details', !!product.assembly);
   if (!product.assembly) { el.innerHTML = '<p class="hint">No assembly energy set.</p>'; return; }
   const energy = findById(ENERGY, product.assembly.energyId);
   el.innerHTML = `<div class="line-item">
@@ -497,6 +506,7 @@ function renderAssembly() {
 
 function renderTransport() {
   const el = document.getElementById('transport-list');
+  openDetailsIfContent('transport-details', product.transportLegs.length > 0);
   el.innerHTML = product.transportLegs.length
     ? product.transportLegs.map(t => {
         const transport = findById(TRANSPORT, t.transportId);
@@ -507,6 +517,7 @@ function renderTransport() {
 
 function renderCustom() {
   const el = document.getElementById('custom-list');
+  openDetailsIfContent('custom-details', product.customLines.length > 0);
   el.innerHTML = product.customLines.length
     ? product.customLines.map(c => lineItemRow('custom', c.id, c.name,
         `${fmtMetric(c.ecoCost, 'ecoCost')} · ${fmt(c.co2e)} kg CO2e · ${fmt(c.water, 1)} L · ${fmt(c.energyIn)} kWh`)).join('')
@@ -515,6 +526,7 @@ function renderCustom() {
 
 function renderTradeLines() {
   const el = document.getElementById('trade-list');
+  openDetailsIfContent('trade-details', product.tradeLines.length > 0);
   el.innerHTML = product.tradeLines.length
     ? product.tradeLines.map(t => lineItemRow('trade', t.id, `Made in ${t.madeIn}`,
         `Imported from ${t.importedFrom} (${fmtMetric(t.importCost, 'ecoCost')}) · Exported to ${t.exportedTo} (${fmtMetric(t.exportCost, 'ecoCost')})`)).join('')

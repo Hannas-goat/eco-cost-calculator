@@ -44,9 +44,9 @@ body {
 .site-header .subtitle { margin: 0; max-width: 640px; margin-inline: auto; opacity: 0.92; font-size: 15px; }
 
 .tabs {
-  max-width: 900px;
+  max-width: 1600px;
   margin: 0 auto;
-  padding: 14px 16px 0;
+  padding: 14px 24px 0;
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
@@ -75,12 +75,9 @@ body {
 #tabbtn-sensitivity { --tab-accent: var(--tab-sensitivity); }
 
 main {
-  max-width: 900px;
+  max-width: 1600px;
   margin: 0 auto;
-  padding: 24px 16px 60px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+  padding: 24px 24px 60px;
 }
 
 .tab-panel {
@@ -95,6 +92,21 @@ main {
 }
 @media (prefers-reduced-motion: reduce) {
   .tab-panel { animation: none; }
+}
+
+/* Home: a 2-column grid instead of one long vertical stack, so wide screens use
+   their width instead of leaving it empty either side of a narrow column.
+   Builder spans both columns since it has five subsections and needs the room;
+   the more compact summary/output cards pair up. */
+#tab-home {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+  gap: 24px;
+}
+#builder-card { grid-column: 1 / -1; }
+@media (max-width: 860px) {
+  #tab-home { grid-template-columns: 1fr; }
 }
 
 .stat-grid {
@@ -149,6 +161,37 @@ main {
 .btn-primary:active, .btn-secondary:active, .btn-ghost:active { transform: scale(0.97); }
 .card h2 { margin-top: 0; font-size: 19px; display: flex; align-items: center; gap: 9px; }
 .card h3 { font-size: 15px; margin: 20px 0 8px; color: var(--ink); }
+
+/* Collapsible builder subsections (Assembly/Transport/Custom/Trade) — collapsed by
+   default to keep the page from feeling like one long list; auto-expand via JS if
+   they already hold data. Parts stays outside <details> since it's the primary action. */
+.builder-section {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.builder-section summary {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.builder-section summary::-webkit-details-marker { display: none; }
+.builder-section summary::before {
+  content: '▸';
+  display: inline-block;
+  font-size: 12px;
+  color: var(--ink-soft);
+  transition: transform 0.15s ease;
+}
+.builder-section[open] summary::before { transform: rotate(90deg); }
+.builder-section summary:hover { color: var(--green-dark); }
+.builder-section .line-items, .builder-section .add-form { margin-top: 10px; }
+.builder-section > .hint-inline { margin-top: 10px; display: block; }
 
 .hint { color: var(--ink-soft); font-size: 13.5px; margin: 4px 0 12px; }
 .hint-inline { color: var(--ink-soft); font-size: 12.5px; font-weight: normal; }
@@ -386,9 +429,9 @@ main {
 #account-card #auth-message { color: #fff; font-weight: 600; }
 
 .site-footer {
-  max-width: 900px;
+  max-width: 1600px;
   margin: 0 auto 40px;
-  padding: 0 16px;
+  padding: 0 24px;
   color: var(--ink-soft);
   font-size: 12.5px;
 }
