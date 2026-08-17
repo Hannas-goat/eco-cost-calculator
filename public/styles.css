@@ -65,6 +65,7 @@ body {
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 .tab-btn:hover { color: var(--ink); background: var(--page-bg); }
+.tab-icon { margin-right: 6px; }
 .tab-btn.active { color: var(--ink); border-bottom-color: var(--tab-accent, var(--green)); }
 #tabbtn-home { --tab-accent: var(--tab-home); }
 #tabbtn-carbon { --tab-accent: var(--tab-carbon); }
@@ -110,9 +111,20 @@ main {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
+.stat:hover { transform: translateY(-2px); box-shadow: 0 3px 10px rgba(11, 11, 11, 0.08); }
 .stat-label { font-size: 11.5px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.03em; }
 .stat-value { font-size: 19px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.stat-value.flash { animation: value-flash 0.6s ease; }
+@keyframes value-flash {
+  0% { color: var(--green-dark); }
+  100% { color: inherit; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stat-value.flash { animation: none; }
+  .stat:hover { transform: none; }
+}
 .stat-primary {
   background: var(--green-pale);
   border-color: var(--green);
@@ -130,23 +142,13 @@ main {
   border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow-card);
+  transition: box-shadow 0.2s ease;
 }
+.card:hover { box-shadow: 0 2px 4px rgba(11, 11, 11, 0.06), 0 8px 20px rgba(11, 11, 11, 0.07); }
+.btn-primary, .btn-secondary, .btn-ghost { transition: transform 0.1s ease, background 0.15s ease; }
+.btn-primary:active, .btn-secondary:active, .btn-ghost:active { transform: scale(0.97); }
 .card h2 { margin-top: 0; font-size: 19px; display: flex; align-items: center; gap: 9px; }
-.card h2::before {
-  content: '';
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--card-accent, transparent);
-  flex-shrink: 0;
-}
 .card h3 { font-size: 15px; margin: 20px 0 8px; color: var(--ink); }
-#builder-card h2::before, #results-card h2::before, #scenarios-card h2::before, #overview-card h2::before { background: var(--tab-home); }
-#tab-carbon .card h2::before { background: var(--tab-carbon); }
-#tab-water .card h2::before { background: var(--tab-water); }
-#tab-energy .card h2::before { background: var(--tab-energy); }
-#tab-recycled .card h2::before { background: var(--tab-recycled); }
-#tab-sensitivity .card h2::before { background: var(--tab-sensitivity); }
 
 .hint { color: var(--ink-soft); font-size: 13.5px; margin: 4px 0 12px; }
 .hint-inline { color: var(--ink-soft); font-size: 12.5px; font-weight: normal; }
@@ -361,6 +363,27 @@ main {
 }
 .preset-check-ok { background: var(--green-pale); color: var(--green-dark); border: 1px solid var(--green); }
 .preset-check-fail { background: var(--red-pale); color: var(--red); border: 1px solid var(--red); }
+
+/* Account card: deliberately the most visually prominent card on Home, so
+   signing in isn't easy to scroll past. */
+#account-card {
+  background: linear-gradient(135deg, var(--green-dark), var(--green));
+  border: none;
+  color: #fff;
+}
+#account-card h2 { color: #fff; font-size: 21px; }
+#account-card .hint { color: rgba(255, 255, 255, 0.88); }
+#account-card strong { color: #fff; }
+#account-card .add-form { background: rgba(255, 255, 255, 0.12); }
+#account-card .add-form input {
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+}
+#account-card .btn-primary { background: #fff; color: var(--green-dark); font-weight: 700; }
+#account-card .btn-primary:hover { background: #eafbf0; }
+#account-card .btn-secondary { background: transparent; color: #fff; border: 1px solid rgba(255, 255, 255, 0.6); }
+#account-card .btn-secondary:hover { background: rgba(255, 255, 255, 0.15); }
+#account-card #auth-message { color: #fff; font-weight: 600; }
 
 .site-footer {
   max-width: 900px;

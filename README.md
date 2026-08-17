@@ -82,6 +82,15 @@ trucking) as a further estimate on the same "representative, not certified"
 basis as the rest of the carbon/water/energy dataset — see the comments in
 `data.js` for exactly how each figure was derived.
 
+## Bulk part upload
+
+Instead of adding parts one at a time, upload a CSV with `Name`, `Material`,
+`Weight`, `Process`, and `End-of-life` columns (the last two optional) via
+"Upload parts CSV" on Home — download the template button next to it for the
+exact expected format. Material/process/end-of-life names must match an
+entry in `data.js` (case-insensitive); rows that don't match are skipped with
+an explanation rather than silently dropped or guessed at.
+
 ## Accounts
 
 Optional — the calculator works fully without signing in; saved scenarios

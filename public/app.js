@@ -156,6 +156,7 @@ function refreshRateLabels() {
   transportSelect.value = prevTransport;
 
   updateCustomValuePlaceholder();
+  updateMaterialPreview();
 }
 
 // --- Dropdown population ---
@@ -184,6 +185,19 @@ function renderMaterialOptions() {
   document.getElementById('material-datalist').innerHTML =
     inCategory.map(m => `<option value="${m.name}">`).join('');
   document.getElementById('part-material').value = '';
+  updateMaterialPreview();
+}
+
+// Shows the picked material's rates (in the selected currency/units) as you type,
+// since the searchable text input — unlike the old plain <select> — doesn't show
+// this inline in the dropdown itself.
+function updateMaterialPreview() {
+  const el = document.getElementById('material-preview');
+  const name = document.getElementById('part-material').value.trim();
+  const material = MATERIALS.find(m => m.name === name);
+  el.textContent = material
+    ? `${fmtCurrencyRate(material.ecoCost, 'kg')} · ${material.co2e} kg CO2e/kg · ${material.water} L/kg · ${material.energyIn} kWh/kg · ${material.recycledPct}% recycled`
+    : '';
 }
 
 // --- Adding line items ---
@@ -833,6 +847,97 @@ function downloadCsv(filename, csv) {
   URL.revokeObjectURL(url);
 }
 
+// --- CSV import: bulk-add parts from a spreadsheet instead of one at a time ---
+function downloadCsvTemplate() {
+  const csv = csvFromRows(['Name', 'Material', 'Weight', 'Process', 'End-of-life'], [
+    ['Body', 'Aluminium (secondary)', '2', 'Extruding aluminium', 'Recycling, closed loop: Aluminium (credit)'],
+    ['Cap', 'PE (HDPE, High density)', '0.5', '', ''],
+  ]);
+  downloadCsv('parts-template', csv);
+}
+
+// Minimal CSV line parser: handles quoted fields containing commas, not full RFC 4180
+// (no embedded newlines inside a quoted field) — sufficient for a simple parts sheet.
+function parseCsvLine(line) {
+  const cells = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') { inQuotes = false; }
+      else { cur += ch; }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      cells.push(cur); cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  cells.push(cur);
+  return cells.map(c => c.trim());
+}
+
+function uploadPartsCsv(event) {
+  const file = event.target.files[0];
+  const status = document.getElementById('csv-upload-status');
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const lines = String(reader.result).split(/\r?\n/).filter(l => l.trim().length);
+    if (!lines.length) { status.textContent = 'Empty file.'; return; }
+
+    const header = parseCsvLine(lines[0]).map(h => h.toLowerCase());
+    const col = (...names) => names.map(n => header.indexOf(n)).find(i => i !== -1);
+    const nameCol = col('name', 'part name');
+    const materialCol = col('material');
+    const weightCol = col('weight', 'weight (kg)');
+    const processCol = col('process');
+    const eolCol = col('end-of-life', 'eol');
+
+    if (nameCol === undefined || materialCol === undefined || weightCol === undefined) {
+      status.textContent = 'CSV needs at least Name, Material, and Weight columns — see the template.';
+      return;
+    }
+
+    let added = 0;
+    const errors = [];
+    lines.slice(1).forEach((line, i) => {
+      const cells = parseCsvLine(line);
+      const name = (cells[nameCol] || '').trim();
+      const materialName = (cells[materialCol] || '').trim();
+      const weight = Number(cells[weightCol]);
+      const material = MATERIALS.find(m => m.name.toLowerCase() === materialName.toLowerCase());
+      if (!name || !material || !weight || weight <= 0) {
+        errors.push(`row ${i + 2}${!name ? ' (no name)' : ''}${!material ? ` (material "${materialName}" not found)` : ''}${(!weight || weight <= 0) ? ' (invalid weight)' : ''}`);
+        return;
+      }
+      const processName = processCol !== undefined ? (cells[processCol] || '').trim() : '';
+      const process = processName ? PROCESSES.find(p => p.name.toLowerCase() === processName.toLowerCase()) : null;
+      const eolName = eolCol !== undefined ? (cells[eolCol] || '').trim() : '';
+      const eol = eolName ? END_OF_LIFE.find(e => e.name.toLowerCase() === eolName.toLowerCase()) : null;
+
+      product.parts.push({
+        id: nextLineId++, name, materialId: material.id, weight,
+        processId: process ? process.id : null, endOfLifeId: eol ? eol.id : 'none',
+      });
+      added++;
+    });
+
+    status.textContent = added
+      ? `Added ${added} part(s).${errors.length ? ` Skipped: ${errors.join('; ')}.` : ''}`
+      : `No parts added. ${errors.join('; ') || 'Check the file matches the template format.'}`;
+    activePresetKey = null;
+    renderAll();
+  };
+  reader.onerror = () => { status.textContent = 'Could not read that file.'; };
+  reader.readAsText(file);
+  event.target.value = ''; // allow re-uploading the same file name after a fix
+}
+
 const CSV_EXPORTERS = {
   eco: () => {
     const items = computeLineItems();
@@ -875,13 +980,26 @@ function exportCsv(tabKey, filename) {
 }
 
 // --- Home: overview dashboard (previews every tab) ---
+// Briefly flashes a stat value green when it changes, so updates feel live rather
+// than just silently different — skips the flash on first render (nothing to compare to).
+function setStatValue(id, text) {
+  const el = document.getElementById(id);
+  const changed = el.textContent !== '' && el.textContent !== text;
+  el.textContent = text;
+  if (changed) {
+    el.classList.remove('flash');
+    void el.offsetWidth; // restart the CSS animation even if it's still running
+    el.classList.add('flash');
+  }
+}
+
 function renderOverview(items) {
   const totals = totalsFor(items);
-  document.getElementById('stat-ecoCost').textContent = fmtMetric(totals.ecoCost, 'ecoCost');
-  document.getElementById('stat-co2e').textContent = fmtMetric(totals.co2e, 'co2e');
-  document.getElementById('stat-water').textContent = fmtMetric(totals.water, 'water');
-  document.getElementById('stat-energyIn').textContent = fmtMetric(totals.energyIn, 'energyIn');
-  document.getElementById('stat-recycled').textContent = `${fmt(computeRecycledPct(), 1)}%`;
+  setStatValue('stat-ecoCost', fmtMetric(totals.ecoCost, 'ecoCost'));
+  setStatValue('stat-co2e', fmtMetric(totals.co2e, 'co2e'));
+  setStatValue('stat-water', fmtMetric(totals.water, 'water'));
+  setStatValue('stat-energyIn', fmtMetric(totals.energyIn, 'energyIn'));
+  setStatValue('stat-recycled', `${fmt(computeRecycledPct(), 1)}%`);
 }
 
 // --- Rendering: master ---

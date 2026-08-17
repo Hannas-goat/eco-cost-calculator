@@ -14,12 +14,12 @@
 </header>
 
 <nav class="tabs">
-  <button type="button" id="tabbtn-home" class="tab-btn active" onclick="showTab('home')">Home</button>
-  <button type="button" id="tabbtn-carbon" class="tab-btn" onclick="showTab('carbon')">Carbon footprint</button>
-  <button type="button" id="tabbtn-water" class="tab-btn" onclick="showTab('water')">Water consumption</button>
-  <button type="button" id="tabbtn-energy" class="tab-btn" onclick="showTab('energy')">Energy in production</button>
-  <button type="button" id="tabbtn-recycled" class="tab-btn" onclick="showTab('recycled')">Recycled content</button>
-  <button type="button" id="tabbtn-sensitivity" class="tab-btn" onclick="showTab('sensitivity')">Sensitivity analysis</button>
+  <button type="button" id="tabbtn-home" class="tab-btn active" onclick="showTab('home')"><span class="tab-icon" aria-hidden="true">🏠</span>Home</button>
+  <button type="button" id="tabbtn-carbon" class="tab-btn" onclick="showTab('carbon')"><span class="tab-icon" aria-hidden="true">☁️</span>Carbon footprint</button>
+  <button type="button" id="tabbtn-water" class="tab-btn" onclick="showTab('water')"><span class="tab-icon" aria-hidden="true">💧</span>Water consumption</button>
+  <button type="button" id="tabbtn-energy" class="tab-btn" onclick="showTab('energy')"><span class="tab-icon" aria-hidden="true">⚡</span>Energy in production</button>
+  <button type="button" id="tabbtn-recycled" class="tab-btn" onclick="showTab('recycled')"><span class="tab-icon" aria-hidden="true">♻️</span>Recycled content</button>
+  <button type="button" id="tabbtn-sensitivity" class="tab-btn" onclick="showTab('sensitivity')"><span class="tab-icon" aria-hidden="true">📊</span>Sensitivity analysis</button>
 </nav>
 
 <main>
@@ -28,7 +28,7 @@
   <section id="tab-home" class="tab-panel">
 
     <section class="card" id="account-card">
-      <h2>Account</h2>
+      <h2>👤 Account</h2>
       <div id="account-signed-out">
         <p class="hint">Sign in to save your builds to your account and access them from any device. Without an account, builds are saved only in this browser.</p>
         <form class="add-form" onsubmit="return false;">
@@ -49,7 +49,7 @@
     </section>
 
     <section class="card" id="overview-card">
-      <h2>Overview — all impact indicators</h2>
+      <h2>📈 Overview — all impact indicators</h2>
       <p class="hint">Live totals for the product you build below — one build feeds every tab on this site.</p>
       <div class="currency-row">
         <label for="currency-select">Eco-cost currency</label>
@@ -79,7 +79,7 @@
     </section>
 
     <section class="card" id="builder-card">
-      <h2>1. Build your product</h2>
+      <h2>🏗️ 1. Build your product</h2>
       <p class="hint">Add each part with its material and weight. Optionally add processing and end-of-life treatment per part, plus assembly energy and transport for the whole product.</p>
 
       <div class="preset-row">
@@ -91,20 +91,29 @@
         <button type="button" class="btn-ghost" onclick="clearProduct()">Clear all</button>
       </div>
 
-      <h3>Parts</h3>
+      <div class="preset-row">
+        <span class="hint" style="margin:0;">Or upload data:</span>
+        <label class="btn-ghost" for="csv-upload-input" style="cursor:pointer;">⬆ Upload parts CSV</label>
+        <input type="file" id="csv-upload-input" accept=".csv,text/csv" style="display:none;" onchange="uploadPartsCsv(event)">
+        <button type="button" class="btn-ghost" onclick="downloadCsvTemplate()">⬇ Download CSV template</button>
+        <span class="hint-inline" id="csv-upload-status"></span>
+      </div>
+
+      <h3>🔩 Parts</h3>
       <div id="parts-list" class="line-items"></div>
       <form id="part-form" class="add-form" onsubmit="return false;">
         <input type="text" id="part-name" placeholder="Part name (e.g. Body)" required>
         <select id="part-category" onchange="renderMaterialOptions()"></select>
-        <input type="text" id="part-material" list="material-datalist" placeholder="Type to search material…" autocomplete="off">
+        <input type="text" id="part-material" list="material-datalist" placeholder="Type to search material…" autocomplete="off" oninput="updateMaterialPreview()">
         <datalist id="material-datalist"></datalist>
         <input type="number" id="part-weight" placeholder="Weight (kg)" min="0" step="any" required>
         <select id="part-process"></select>
         <select id="part-eol"></select>
         <button type="button" class="btn-primary" onclick="addPart()">Add part →</button>
       </form>
+      <div class="hint-inline" id="material-preview"></div>
 
-      <h3>Assembly energy <span class="hint-inline">(applied to the total weight of the product)</span></h3>
+      <h3>⚡ Assembly energy <span class="hint-inline">(applied to the total weight of the product)</span></h3>
       <div id="assembly-line" class="line-items"></div>
       <form class="add-form" onsubmit="return false;">
         <select id="assembly-energy"></select>
@@ -112,7 +121,7 @@
         <button type="button" class="btn-primary" onclick="setAssembly()">Set assembly energy →</button>
       </form>
 
-      <h3>Transport</h3>
+      <h3>🚚 Transport</h3>
       <div id="transport-list" class="line-items"></div>
       <form id="transport-form" class="add-form" onsubmit="return false;">
         <select id="transport-mode"></select>
@@ -121,7 +130,7 @@
         <button type="button" class="btn-primary" onclick="addTransport()">Add transport leg →</button>
       </form>
 
-      <h3>Custom line item <span class="hint-inline">(any known impact not covered above)</span></h3>
+      <h3>✏️ Custom line item <span class="hint-inline">(any known impact not covered above)</span></h3>
       <div id="custom-list" class="line-items"></div>
       <form class="add-form" onsubmit="return false;">
         <input type="text" id="custom-name" placeholder="Description (e.g. Packaging)">
@@ -132,7 +141,7 @@
         <button type="button" class="btn-primary" onclick="addCustomLine()">Add custom line →</button>
       </form>
 
-      <h3>Trade <span class="hint-inline">(import/export cost — a financial cost, not an environmental impact)</span></h3>
+      <h3>🌍 Trade <span class="hint-inline">(import/export cost — a financial cost, not an environmental impact)</span></h3>
       <div id="trade-list" class="line-items"></div>
       <form class="add-form" onsubmit="return false;">
         <select id="trade-made-in" aria-label="Country made in"></select>
@@ -145,7 +154,7 @@
     </section>
 
     <section class="card" id="results-card">
-      <h2>2. Eco-cost results</h2>
+      <h2>💶 2. Eco-cost results</h2>
       <div id="preset-check" class="preset-check" style="display:none;"></div>
       <div id="results-empty" class="hint">Add at least one part to see the eco-cost breakdown.</div>
       <div id="results-body" style="display:none;">
@@ -168,7 +177,7 @@
     </section>
 
     <section class="card" id="scenarios-card">
-      <h2>3. Save &amp; compare scenarios</h2>
+      <h2>🔀 3. Save &amp; compare scenarios</h2>
       <p class="hint">Save the current product as a named scenario (e.g. "Base case", "Recycled aluminium body"), then compare every indicator side by side to see which design choices reduce environmental impact most. <span id="scenarios-storage-note"></span></p>
       <form class="add-form" onsubmit="return false;">
         <input type="text" id="scenario-name" placeholder="Scenario name">
@@ -187,7 +196,7 @@
   <!-- ===== CARBON FOOTPRINT (derived view of the Home product) ===== -->
   <section id="tab-carbon" class="tab-panel" style="display:none;">
     <section class="card">
-      <h2>Carbon footprint</h2>
+      <h2>☁️ Carbon footprint</h2>
       <p class="hint">CO2e breakdown for the product you build on the Home tab — nothing to enter here.</p>
       <div id="carbon-empty" class="hint">Add at least one part on the Home tab to see the carbon breakdown.</div>
       <div id="carbon-body" style="display:none;">
@@ -218,7 +227,7 @@
   <!-- ===== WATER CONSUMPTION (derived view of the Home product) ===== -->
   <section id="tab-water" class="tab-panel" style="display:none;">
     <section class="card">
-      <h2>Water consumption</h2>
+      <h2>💧 Water consumption</h2>
       <p class="hint">Water use (litres) for the product you build on the Home tab — nothing to enter here.</p>
       <div id="water-empty" class="hint">Add at least one part on the Home tab to see the water breakdown.</div>
       <div id="water-body" style="display:none;">
@@ -249,7 +258,7 @@
   <!-- ===== ENERGY USED IN PRODUCTION (derived view of the Home product) ===== -->
   <section id="tab-energy" class="tab-panel" style="display:none;">
     <section class="card">
-      <h2>Energy used in production</h2>
+      <h2>⚡ Energy used in production</h2>
       <p class="hint">Embodied / cumulative energy demand (kWh) for the product you build on the Home tab — nothing to enter here.</p>
       <div id="energy-empty" class="hint">Add at least one part on the Home tab to see the energy breakdown.</div>
       <div id="energy-body" style="display:none;">
@@ -280,7 +289,7 @@
   <!-- ===== RECYCLED CONTENT (derived view of the Home product) ===== -->
   <section id="tab-recycled" class="tab-panel" style="display:none;">
     <section class="card">
-      <h2>Recycled content</h2>
+      <h2>♻️ Recycled content</h2>
       <p class="hint">Weighted by part weight, from each material's recycled-content share, for the product you build on the Home tab — nothing to enter here.</p>
       <div id="recycled-empty" class="hint">Add at least one part on the Home tab to see recycled content.</div>
       <div id="recycled-body" style="display:none;">
@@ -309,7 +318,7 @@
   <!-- ===== SENSITIVITY ANALYSIS (derived view of the Home product) ===== -->
   <section id="tab-sensitivity" class="tab-panel" style="display:none;">
     <section class="card">
-      <h2>Sensitivity analysis</h2>
+      <h2>📊 Sensitivity analysis</h2>
       <p class="hint">Pick one input from the product you build on the Home tab and see how much each total moves if that input is off by the chosen percentage — the biggest swings are the inputs most worth double-checking.</p>
       <div id="sens-empty" class="hint">Build a product on the Home tab first, then pick an input here.</div>
       <form id="sens-form" class="add-form" onsubmit="return false;" style="display:none;">
