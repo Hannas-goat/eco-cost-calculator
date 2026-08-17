@@ -5,6 +5,10 @@ const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
+const multer = require('multer');
+const { PDFParse } = require('pdf-parse');
+const mammoth = require('mammoth');
+const XLSX = require('xlsx');
 const { createClient } = require('@libsql/client');
 const { MATERIALS, PROCESSES, END_OF_LIFE } = require('./public/data.js');
 
@@ -15,11 +19,13 @@ const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
 // AI part extraction (optional — NVIDIA's OpenAI-compatible API, https://build.nvidia.com).
 // NVIDIA_API_KEY is a secret and must only ever live here as a server env var, never in
-// any file served to the browser. Model/base URL are overridable in case the default
-// model name below ever changes or you want a different one from NVIDIA's catalog.
+// any file served to the browser. Model/base URL/vision-model are overridable in case the
+// defaults below don't match what your key has access to on NVIDIA's catalog -- the vision
+// model name in particular is a best guess and the one most likely to need adjusting.
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
 const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'meta/llama-3.1-70b-instruct';
+const NVIDIA_VISION_MODEL = process.env.NVIDIA_VISION_MODEL || 'meta/llama-3.2-90b-vision-instruct';
 if (!NVIDIA_API_KEY) {
   console.warn('NVIDIA_API_KEY not set — AI part extraction is disabled (everything else still works).');
 }
@@ -226,58 +232,161 @@ Rules:
 - Do not guess a material out of thin air just because a part was mentioned -- only set it when the text actually indicates a material.`;
 }
 
+// Shared by both the text and file endpoints: calls NVIDIA's chat/completions with a
+// given model + messages, and extracts/validates the {"parts":[...]} JSON out of whatever
+// the model replied with (models often wrap JSON in chatty text despite instructions not
+// to, so this scans for a JSON object rather than trusting the whole reply is clean JSON).
+// Returns { status, body } -- status is the HTTP status the route should respond with.
+async function callNvidiaForParts(messages, model) {
+  let aiRes;
+  try {
+    aiRes = await fetch(`${NVIDIA_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${NVIDIA_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages, temperature: 0.1, max_tokens: 1024 }),
+    });
+  } catch (e) {
+    return { status: 502, body: { error: 'Could not reach the AI service: ' + e.message } };
+  }
+
+  if (!aiRes.ok) {
+    const errText = await aiRes.text().catch(() => '');
+    return { status: 502, body: { error: `AI service error (${aiRes.status}): ${errText.slice(0, 200)}` } };
+  }
+
+  const data = await aiRes.json().catch(() => null);
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string') {
+    return { status: 502, body: { error: 'AI response was missing the expected content.' } };
+  }
+
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return { status: 502, body: { error: 'AI response did not contain JSON.' } };
+
+  let parsed;
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch (e) {
+    return { status: 502, body: { error: 'Could not parse the AI response as JSON.' } };
+  }
+  if (!Array.isArray(parsed.parts)) {
+    return { status: 502, body: { error: 'AI response was missing a "parts" array.' } };
+  }
+
+  return { status: 200, body: { parts: parsed.parts.slice(0, 30) } }; // cap so a runaway response can't flood the page
+}
+
 app.post('/api/ai-extract-parts', aiLimiter, async (req, res) => {
   if (!NVIDIA_API_KEY) {
     return res.status(503).json({ error: 'AI extraction is not configured on this server yet (NVIDIA_API_KEY not set).' });
   }
   const description = typeof req.body?.description === 'string' ? req.body.description.trim() : '';
   if (!description) return res.status(400).json({ error: 'Describe the product first.' });
-  if (description.length > 4000) return res.status(400).json({ error: 'Description is too long (max 4000 characters).' });
+  if (description.length > 6000) return res.status(400).json({ error: 'Description is too long (max 6000 characters).' });
 
-  let aiRes;
+  const { status, body } = await callNvidiaForParts(
+    [
+      { role: 'system', content: buildExtractionPrompt() },
+      { role: 'user', content: description },
+    ],
+    NVIDIA_MODEL
+  );
+  res.status(status).json(body);
+});
+
+// --- AI part extraction from an uploaded file (PDF, Word, Excel, or an image) ---
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
+});
+
+const DOCUMENT_EXTRACTORS = {
+  '.pdf': async (buffer) => {
+    const parser = new PDFParse({ data: buffer });
+    try {
+      const result = await parser.getText();
+      return result.text;
+    } finally {
+      await parser.destroy();
+    }
+  },
+  '.docx': async (buffer) => {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value;
+  },
+  '.xlsx': (buffer) => spreadsheetToText(buffer),
+  '.xls': (buffer) => spreadsheetToText(buffer),
+};
+
+function spreadsheetToText(buffer) {
+  const workbook = XLSX.read(buffer, { type: 'buffer' });
+  return workbook.SheetNames
+    .map((name) => `--- ${name} ---\n${XLSX.utils.sheet_to_csv(workbook.Sheets[name])}`)
+    .join('\n\n');
+}
+
+const IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+
+app.post('/api/ai-extract-parts-from-file', aiLimiter, upload.single('file'), async (req, res) => {
+  if (!NVIDIA_API_KEY) {
+    return res.status(503).json({ error: 'AI extraction is not configured on this server yet (NVIDIA_API_KEY not set).' });
+  }
+  const file = req.file;
+  if (!file) return res.status(400).json({ error: 'No file was uploaded.' });
+
+  const ext = path.extname(file.originalname || '').toLowerCase();
+
+  // Images go to a vision-capable model as an image + instructions, not extracted text.
+  if (IMAGE_MIME_TYPES.has(file.mimetype)) {
+    const base64 = file.buffer.toString('base64');
+    const { status, body } = await callNvidiaForParts(
+      [
+        { role: 'system', content: buildExtractionPrompt() },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Extract the parts from this image (a product photo, spec sheet, or handwritten notes).' },
+            { type: 'image_url', image_url: { url: `data:${file.mimetype};base64,${base64}` } },
+          ],
+        },
+      ],
+      NVIDIA_VISION_MODEL
+    );
+    return res.status(status).json(body);
+  }
+
+  // Otherwise: extract text from the document, then reuse the same text-based flow.
+  const extractor = DOCUMENT_EXTRACTORS[ext];
+  if (!extractor) {
+    return res.status(400).json({ error: `Unsupported file type "${ext || file.mimetype}". Supported: PDF, DOCX, XLS/XLSX, or an image.` });
+  }
+
+  let text;
   try {
-    aiRes = await fetch(`${NVIDIA_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${NVIDIA_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: NVIDIA_MODEL,
-        messages: [
-          { role: 'system', content: buildExtractionPrompt() },
-          { role: 'user', content: description },
-        ],
-        temperature: 0.1,
-        max_tokens: 1024,
-      }),
-    });
+    text = await extractor(file.buffer);
   } catch (e) {
-    return res.status(502).json({ error: 'Could not reach the AI service: ' + e.message });
+    return res.status(400).json({ error: `Could not read that file: ${e.message}` });
   }
+  text = (text || '').trim();
+  if (!text) return res.status(400).json({ error: 'No readable text was found in that file.' });
+  if (text.length > 12000) text = text.slice(0, 12000);
 
-  if (!aiRes.ok) {
-    const errText = await aiRes.text().catch(() => '');
-    return res.status(502).json({ error: `AI service error (${aiRes.status}): ${errText.slice(0, 200)}` });
+  const { status, body } = await callNvidiaForParts(
+    [
+      { role: 'system', content: buildExtractionPrompt() },
+      { role: 'user', content: text },
+    ],
+    NVIDIA_MODEL
+  );
+  res.status(status).json(body);
+});
+
+// Multer errors (e.g. file too large) reach here instead of the route handler.
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'File is too large (max 15 MB).' : err.message });
   }
-
-  const data = await aiRes.json().catch(() => null);
-  const content = data?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string') {
-    return res.status(502).json({ error: 'AI response was missing the expected content.' });
-  }
-
-  const jsonMatch = content.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return res.status(502).json({ error: 'AI response did not contain JSON.' });
-
-  let parsed;
-  try {
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch (e) {
-    return res.status(502).json({ error: 'Could not parse the AI response as JSON.' });
-  }
-  if (!Array.isArray(parsed.parts)) {
-    return res.status(502).json({ error: 'AI response was missing a "parts" array.' });
-  }
-
-  res.json({ parts: parsed.parts.slice(0, 30) }); // cap so a runaway response can't flood the page
+  next(err);
 });
 
 // --- Static frontend ---

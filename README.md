@@ -93,14 +93,21 @@ an explanation rather than silently dropped or guessed at.
 
 ## AI part extraction (optional)
 
-A third way to fill in parts: describe the product in plain language in the
-"Or describe it in plain language" box on Home, and an AI call (via NVIDIA's
-OpenAI-compatible API, `https://build.nvidia.com`) extracts structured parts
-from it — matched against the real material/process/end-of-life names in
-`data.js`, same validation as the CSV upload, so a name the AI gets wrong
-never silently becomes a real part (it's skipped with an explanation
-instead). Suggestions are added directly to the product; review them before
-trusting the numbers.
+A third way to fill in parts, on Home: describe the product in plain
+language, or attach a file — `.txt`/`.md`/`.csv`/`.json` (read directly in
+the browser), a PDF, a Word (`.docx`) or Excel (`.xls`/`.xlsx`) document, or
+an image (a product photo, spec sheet, or handwritten notes) — and an AI
+call extracts structured parts from it. Everything is matched against the
+real material/process/end-of-life names in `data.js`, same validation as the
+CSV upload, so a name the AI gets wrong never silently becomes a real part
+(it's skipped with an explanation instead). Suggestions are added directly
+to the product; review them before trusting the numbers.
+
+Uses NVIDIA's OpenAI-compatible API (`https://build.nvidia.com`) — text
+documents go to a text model; images go to a separate vision-capable model,
+since not every model on a given key/plan supports both. PDF text comes via
+`pdf-parse`, `.docx` via `mammoth`, `.xls`/`.xlsx` via `xlsx` (converted to
+CSV text) — all parsed **server-side**, capped at 15 MB per file.
 
 This calls the AI from the **server**, never the browser — the API key is a
 secret credential and must never end up in any file shipped to the client.
@@ -108,10 +115,11 @@ To enable it:
 
 1. Get an API key from [build.nvidia.com](https://build.nvidia.com).
 2. Set `NVIDIA_API_KEY` as an environment variable on your Render service
-   (Environment tab — same place as `JWT_SECRET`/`TURSO_*`). Optionally set
-   `NVIDIA_MODEL` (defaults to `meta/llama-3.1-70b-instruct`) or
-   `NVIDIA_BASE_URL` if you want a different model/endpoint from NVIDIA's
-   catalog.
+   (Environment tab — same place as `JWT_SECRET`/`TURSO_*`).
+3. Optionally set `NVIDIA_MODEL` (defaults to `meta/llama-3.1-70b-instruct`),
+   `NVIDIA_VISION_MODEL` (defaults to `meta/llama-3.2-90b-vision-instruct` —
+   this default is the most likely to need changing, since vision-model
+   availability varies by plan/key), or `NVIDIA_BASE_URL`.
 
 Until `NVIDIA_API_KEY` is set, the feature returns a clear "not configured"
 message and everything else keeps working exactly as before — same pattern

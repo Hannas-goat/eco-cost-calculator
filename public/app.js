@@ -950,21 +950,38 @@ function uploadPartsCsv(event) {
   event.target.value = ''; // allow re-uploading the same file name after a fix
 }
 
-// --- AI part extraction: free-text description -> parts, via the backend (never
+// --- AI part extraction: free-text OR an uploaded file -> parts, via the backend (never
 // calls the AI provider directly from the browser -- the API key must stay server-side).
 // Matching against MATERIALS/PROCESSES/END_OF_LIFE happens here, same as CSV upload,
 // so a made-up name the AI might return never silently becomes a real part.
-async function extractPartsWithAI() {
-  const textarea = document.getElementById('ai-description');
+
+// File types the browser can just read as plain text -- everything else (PDF, DOCX,
+// XLS/XLSX, images) needs server-side parsing, so those go through aiAttachedFile instead.
+const AI_PLAIN_TEXT_EXTENSIONS = ['.txt', '.md', '.csv', '.json'];
+let aiAttachedFile = null;
+
+function handleAiFileSelect(event) {
+  const file = event.target.files[0];
   const status = document.getElementById('ai-status');
-  const description = textarea.value.trim();
-  if (!description) { status.textContent = 'Describe the product first.'; return; }
+  aiAttachedFile = null;
+  if (!file) { status.textContent = ''; return; }
 
-  status.textContent = 'Thinking…';
-  const { ok, data } = await api('/api/ai-extract-parts', { method: 'POST', body: { description } });
-  if (!ok) { status.textContent = data.error || 'AI extraction failed.'; return; }
+  const ext = '.' + (file.name.split('.').pop() || '').toLowerCase();
+  if (AI_PLAIN_TEXT_EXTENSIONS.includes(ext) || file.type.startsWith('text/')) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      document.getElementById('ai-description').value = String(reader.result).slice(0, 20000);
+      status.textContent = `Loaded ${file.name} into the box above — edit if needed, then Extract.`;
+    };
+    reader.onerror = () => { status.textContent = 'Could not read that file.'; };
+    reader.readAsText(file);
+  } else {
+    aiAttachedFile = file;
+    status.textContent = `📎 ${file.name} attached (${(file.size / 1024).toFixed(0)} KB) — click "Extract parts with AI" to process it.`;
+  }
+}
 
-  const suggestions = Array.isArray(data.parts) ? data.parts : [];
+function applyAiPartSuggestions(suggestions) {
   let added = 0;
   const skipped = [];
   for (const s of suggestions) {
@@ -987,12 +1004,39 @@ async function extractPartsWithAI() {
     });
     added++;
   }
+  return { added, skipped };
+}
 
+async function extractPartsWithAI() {
+  const textarea = document.getElementById('ai-description');
+  const fileInput = document.getElementById('ai-file-input');
+  const status = document.getElementById('ai-status');
+
+  let ok, data;
+  if (aiAttachedFile) {
+    status.textContent = 'Reading and thinking…';
+    const formData = new FormData();
+    formData.append('file', aiAttachedFile);
+    const res = await fetch('/api/ai-extract-parts-from-file', { method: 'POST', body: formData, credentials: 'same-origin' });
+    data = await res.json().catch(() => ({}));
+    ok = res.ok;
+  } else {
+    const description = textarea.value.trim();
+    if (!description) { status.textContent = 'Describe the product or attach a file first.'; return; }
+    status.textContent = 'Thinking…';
+    ({ ok, data } = await api('/api/ai-extract-parts', { method: 'POST', body: { description } }));
+  }
+
+  if (!ok) { status.textContent = data.error || 'AI extraction failed.'; return; }
+
+  const { added, skipped } = applyAiPartSuggestions(Array.isArray(data.parts) ? data.parts : []);
   status.textContent = added
     ? `AI added ${added} part(s) — review them below before trusting the numbers.${skipped.length ? ` Skipped: ${skipped.join('; ')}.` : ''}`
     : `No usable parts found.${skipped.length ? ` (${skipped.join('; ')})` : ' Try describing the material and weight more explicitly.'}`;
   if (added) {
     textarea.value = '';
+    fileInput.value = '';
+    aiAttachedFile = null;
     activePresetKey = null;
     renderAll();
   }
