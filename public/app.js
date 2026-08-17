@@ -1028,6 +1028,26 @@ function stopAiTimer() {
   if (aiTimerHandle) { clearInterval(aiTimerHandle); aiTimerHandle = null; }
 }
 
+// Backstop in case the server itself stalls (not just NVIDIA, which the server already
+// times out on its own end after 45s) -- slightly longer than that, so the server's own
+// clearer timeout message wins in the normal case and this is just a last resort.
+async function fetchAiWithTimeout(url, options) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 55000);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    const data = await res.json().catch(() => ({}));
+    return { ok: res.ok, data };
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      return { ok: false, data: { error: 'This is taking far longer than expected (over 55s) and was cancelled on this end. The AI service may be overloaded — try again in a bit, or try a shorter description.' } };
+    }
+    return { ok: false, data: { error: 'Network error: ' + e.message } };
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function extractPartsWithAI() {
   const textarea = document.getElementById('ai-description');
   const fileInput = document.getElementById('ai-file-input');
@@ -1039,14 +1059,17 @@ async function extractPartsWithAI() {
     startAiTimer(isImage ? '15-25s for images' : '10-20s for documents');
     const formData = new FormData();
     formData.append('file', aiAttachedFile);
-    const res = await fetch('/api/ai-extract-parts-from-file', { method: 'POST', body: formData, credentials: 'same-origin' });
-    data = await res.json().catch(() => ({}));
-    ok = res.ok;
+    ({ ok, data } = await fetchAiWithTimeout('/api/ai-extract-parts-from-file', { method: 'POST', body: formData, credentials: 'same-origin' }));
   } else {
     const description = textarea.value.trim();
     if (!description) { status.textContent = 'Describe the product or attach a file first.'; return; }
     startAiTimer('5-10s for text');
-    ({ ok, data } = await api('/api/ai-extract-parts', { method: 'POST', body: { description } }));
+    ({ ok, data } = await fetchAiWithTimeout('/api/ai-extract-parts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description }),
+      credentials: 'same-origin',
+    }));
   }
   stopAiTimer();
 

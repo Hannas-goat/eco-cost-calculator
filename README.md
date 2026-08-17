@@ -126,6 +126,16 @@ message and everything else keeps working exactly as before — same pattern
 as the optional Supabase/Turso setup elsewhere in this README. Rate-limited
 server-side (10 requests / 10 minutes per IP) since it hits a paid API.
 
+The server never waits more than 45 seconds on NVIDIA before giving up and
+returning a clear timeout error (the browser has its own 55-second backstop
+in case the server itself stalls) — earlier versions had no timeout at all,
+so a slow/stuck upstream response could hang indefinitely. JSON extraction
+from the model's reply also tries every brace-delimited candidate in the
+text and validates its shape before accepting it, rather than assuming the
+first (or first-to-last) braces are the real answer — models often wrap
+JSON in commentary despite being told not to, and a naive extraction breaks
+the moment that commentary itself contains any brace-like text.
+
 ## Accounts
 
 Optional — the calculator works fully without signing in; saved scenarios

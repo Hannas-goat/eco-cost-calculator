@@ -219,7 +219,8 @@ const EOL_NAMES = END_OF_LIFE.map((e) => e.name);
 
 function buildExtractionPrompt() {
   return `You extract structured part data from a free-text product description for a Life Cycle Assessment calculator.
-Respond with ONLY valid JSON (no markdown fences, no commentary before or after), matching exactly this shape:
+
+Output ONLY the JSON object below and absolutely nothing else: no markdown code fences, no "Here is the JSON:", no reasoning, no explanation, no follow-up questions, before or after it. Your entire response must be parseable as JSON on its own. Keep it short -- do not add extra fields, comments, or repeated/padded text.
 {"parts":[{"name":string,"material":string|null,"weight":number|null,"process":string|null,"endOfLife":string|null}]}
 
 Rules:
@@ -227,9 +228,10 @@ Rules:
 - "process" must be copied EXACTLY from this list, or null if not mentioned: ${PROCESS_NAMES.join(' | ')}
 - "endOfLife" must be copied EXACTLY from this list, or null if not mentioned: ${EOL_NAMES.join(' | ')}
 - "weight" is in kilograms as a plain number (convert other units), or null if not stated.
-- Create one entry in "parts" per distinct physical component described. A single simple product is one entry.
+- Create one entry in "parts" per distinct physical component described. A single simple product is one entry, and cap it at 10 entries even if more are described.
 - Never invent a material/process/end-of-life name that isn't character-for-character in the lists above -- use null instead.
-- Do not guess a material out of thin air just because a part was mentioned -- only set it when the text actually indicates a material.`;
+- Do not guess a material out of thin air just because a part was mentioned -- only set it when the text actually indicates a material.
+- If nothing usable is described, respond with {"parts":[]} -- never refuse, apologize, or ask a clarifying question instead.`;
 }
 
 // Shared by both the text and file endpoints: calls NVIDIA's chat/completions with a
@@ -237,16 +239,66 @@ Rules:
 // the model replied with (models often wrap JSON in chatty text despite instructions not
 // to, so this scans for a JSON object rather than trusting the whole reply is clean JSON).
 // Returns { status, body } -- status is the HTTP status the route should respond with.
+//
+// Two earlier versions of this both broke on rambling responses in different ways: a
+// greedy "first { ... last }" regex spans across ANY brace-like text before/after the
+// real JSON; and just balancing braces from the very first "{" still picks the wrong
+// span if there's earlier brace-like chatter (e.g. "my analysis {of the product}: {...}"
+// -- "{of the product}" is itself perfectly balanced, just not valid/right JSON). This
+// instead tries every "{" in the text as a candidate start, and for each, walks forward
+// (string-aware, so braces inside quoted values don't confuse the depth count) to its
+// true matching close brace, then actually attempts to parse *and* shape-check that
+// span -- only accepting one that parses to an object with a "parts" array. Returns
+// null if nothing in the whole text qualifies (e.g. the response got cut off mid-JSON,
+// or the model never produced JSON shaped like what was asked for).
+function extractPartsObject(text) {
+  for (let start = text.indexOf('{'); start !== -1; start = text.indexOf('{', start + 1)) {
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        continue;
+      }
+      if (ch === '"') inString = true;
+      else if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          try {
+            const parsed = JSON.parse(text.slice(start, i + 1));
+            if (parsed && typeof parsed === 'object' && Array.isArray(parsed.parts)) return parsed;
+          } catch (e) { /* not valid JSON at this start position -- try the next "{" */ }
+          break; // this span is closed; move on to the next candidate start
+        }
+      }
+    }
+  }
+  return null;
+}
+
 async function callNvidiaForParts(messages, model) {
   let aiRes;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000); // hard cap -- never hang indefinitely
   try {
     aiRes = await fetch(`${NVIDIA_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${NVIDIA_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model, messages, temperature: 0.1, max_tokens: 1024 }),
+      signal: controller.signal,
     });
   } catch (e) {
+    if (e.name === 'AbortError') {
+      return { status: 504, body: { error: 'The AI service took longer than 45 seconds to respond, so the request was cancelled. Please try again -- if it keeps happening, the model may be overloaded; try a shorter description or a different NVIDIA_MODEL.' } };
+    }
     return { status: 502, body: { error: 'Could not reach the AI service: ' + e.message } };
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (!aiRes.ok) {
@@ -260,17 +312,12 @@ async function callNvidiaForParts(messages, model) {
     return { status: 502, body: { error: 'AI response was missing the expected content.' } };
   }
 
-  const jsonMatch = content.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return { status: 502, body: { error: 'AI response did not contain JSON.' } };
-
-  let parsed;
-  try {
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch (e) {
-    return { status: 502, body: { error: 'Could not parse the AI response as JSON.' } };
-  }
-  if (!Array.isArray(parsed.parts)) {
-    return { status: 502, body: { error: 'AI response was missing a "parts" array.' } };
+  const parsed = extractPartsObject(content);
+  if (!parsed) {
+    return {
+      status: 502,
+      body: { error: `AI response didn't contain a usable {"parts":[...]} object (it may have rambled, been cut off, or refused). Response started with: ${content.slice(0, 200)}` },
+    };
   }
 
   return { status: 200, body: { parts: parsed.parts.slice(0, 30) } }; // cap so a runaway response can't flood the page
