@@ -224,7 +224,8 @@ Output ONLY the JSON object below and absolutely nothing else: no markdown code 
 {"parts":[{"name":string,"material":string|null,"weight":number|null,"process":string|null,"endOfLife":string|null}]}
 
 Rules:
-- "material" must be copied EXACTLY (character-for-character) from this list, or null if nothing in the text clearly matches: ${MATERIAL_NAMES.join(' | ')}
+- "material" must be one of the EXACT strings in this list, or null -- never output any other text for this field, even a close paraphrase or the literal word the source text used: ${MATERIAL_NAMES.join(' | ')}
+  Example: source text says "carbon" for a battery electrode -> output "Graphite (battery anode)", NOT "Carbon" or "Graphite" (those exact strings aren't in the list). Source text says "carbon fibre panel" -> output "CFRP 25% carbon" instead, since that's the entry that actually fits. If you can't map it to one specific entry from the list with confidence, output null rather than any other text -- null is always a valid, correct answer; a string that isn't in the list above is never a valid answer.
 - "process" must be copied EXACTLY from this list, or null if not mentioned: ${PROCESS_NAMES.join(' | ')}
 - "endOfLife" must be copied EXACTLY from this list, or null if not mentioned: ${EOL_NAMES.join(' | ')}
 - "weight" is in kilograms as a plain number (convert other units), or null if not stated.
