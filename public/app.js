@@ -983,28 +983,51 @@ function handleAiFileSelect(event) {
 
 function applyAiPartSuggestions(suggestions) {
   let added = 0;
+  let estimated = 0;
   const skipped = [];
   for (const s of suggestions) {
     const name = String(s.name || 'Part').slice(0, 60);
     const materialName = s.material ? String(s.material) : '';
     const material = materialName ? MATERIALS.find(m => m.name.toLowerCase() === materialName.toLowerCase()) : null;
     const weight = Number(s.weight);
-    if (!material || !weight || weight <= 0) {
-      skipped.push(`${name} (${!material ? `no reference material for "${materialName || 'none given'}"` : 'missing/invalid weight'})`);
+    const hasWeight = weight && weight > 0;
+
+    if (material && hasWeight) {
+      const processName = s.process ? String(s.process) : '';
+      const process = processName ? PROCESSES.find(p => p.name.toLowerCase() === processName.toLowerCase()) : null;
+      const eolName = s.endOfLife ? String(s.endOfLife) : '';
+      const eol = eolName ? END_OF_LIFE.find(e => e.name.toLowerCase() === eolName.toLowerCase()) : null;
+      product.parts.push({
+        id: nextLineId++, name, materialId: material.id, weight,
+        processId: process ? process.id : null, endOfLifeId: eol ? eol.id : 'none',
+      });
+      added++;
       continue;
     }
-    const processName = s.process ? String(s.process) : '';
-    const process = processName ? PROCESSES.find(p => p.name.toLowerCase() === processName.toLowerCase()) : null;
-    const eolName = s.endOfLife ? String(s.endOfLife) : '';
-    const eol = eolName ? END_OF_LIFE.find(e => e.name.toLowerCase() === eolName.toLowerCase()) : null;
 
-    product.parts.push({
-      id: nextLineId++, name, materialId: material.id, weight,
-      processId: process ? process.id : null, endOfLifeId: eol ? eol.id : 'none',
-    });
-    added++;
+    // No catalog material fit -- if the AI supplied its own grounded per-kg estimate
+    // (only offered when nothing in the reference data matched), add it as a custom
+    // line instead of silently giving up, but clearly marked as unverified so it's
+    // never mistaken for the vetted reference figures the catalog matches use.
+    const est = s.estimate;
+    const hasEstimate = est && typeof est === 'object' &&
+      [est.ecoCost, est.co2e, est.water, est.energyIn].some(v => Number(v) > 0);
+    if (!material && hasEstimate && hasWeight) {
+      product.customLines.push({
+        id: nextLineId++,
+        name: `${name} (AI-estimated — not in reference data, verify before trusting)`,
+        ecoCost: (Number(est.ecoCost) || 0) * weight,
+        co2e: (Number(est.co2e) || 0) * weight,
+        water: (Number(est.water) || 0) * weight,
+        energyIn: (Number(est.energyIn) || 0) * weight,
+      });
+      estimated++;
+      continue;
+    }
+
+    skipped.push(`${name} (${!material ? `no reference material for "${materialName || 'none given'}"` : 'missing/invalid weight'})`);
   }
-  return { added, skipped };
+  return { added, estimated, skipped };
 }
 
 // Live elapsed-time counter while an AI request is in flight — there's no real
@@ -1075,13 +1098,14 @@ async function extractPartsWithAI() {
 
   if (!ok) { status.textContent = data.error || 'AI extraction failed.'; return; }
 
-  const { added, skipped } = applyAiPartSuggestions(Array.isArray(data.parts) ? data.parts : []);
-  status.textContent = added
-    ? `AI added ${added} part(s) — review them below before trusting the numbers.${skipped.length ? ` Skipped: ${skipped.join('; ')}.` : ''}`
+  const { added, estimated, skipped } = applyAiPartSuggestions(Array.isArray(data.parts) ? data.parts : []);
+  const handled = added + estimated;
+  status.textContent = handled
+    ? `AI added ${added} part(s) from the reference data${estimated ? ` and ${estimated} with its own estimated numbers (marked "AI-estimated" in the custom lines — review before trusting)` : ''}.${skipped.length ? ` Skipped: ${skipped.join('; ')}.` : ''}`
     : skipped.length
-      ? `AI found ${skipped.length} part(s), but none matched the reference data: ${skipped.join('; ')}. Add these yourself via "Custom line item" below — it takes any material and impact numbers, not just what's in the dropdown.`
+      ? `AI found ${skipped.length} part(s), but couldn't match or confidently estimate any of them: ${skipped.join('; ')}. Add these yourself via "Custom line item" below — it takes any material and impact numbers, not just what's in the dropdown.`
       : 'No usable parts found. Try describing the material and weight more explicitly.';
-  if (added) {
+  if (handled) {
     textarea.value = '';
     fileInput.value = '';
     aiAttachedFile = null;

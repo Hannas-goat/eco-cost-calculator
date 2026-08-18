@@ -234,21 +234,41 @@ function resolveListIndex(list, value) {
   return list[n - 1];
 }
 
+// The model's own fallback estimate for a material that isn't in the reference
+// catalog at all -- only used when "material" resolved to null. Sanity-bounded
+// (finite, non-negative, capped) so a malformed/hallucinated response can't
+// silently inject an absurd number, but otherwise trusted at face value: it's
+// always shown to the user as an unverified AI estimate, never as reference data.
+function sanitizeEstimate(estimate) {
+  if (!estimate || typeof estimate !== 'object') return null;
+  const out = {};
+  for (const field of ['ecoCost', 'co2e', 'water', 'energyIn']) {
+    const n = Number(estimate[field]);
+    if (!Number.isFinite(n) || n < 0 || n > 5000) return null;
+    out[field] = n;
+  }
+  return out;
+}
+
 function resolvePartIndices(parts) {
-  return parts.map((p) => ({
-    name: p?.name ?? null,
-    material: resolveListIndex(MATERIAL_NAMES, p?.material),
-    weight: p?.weight ?? null,
-    process: resolveListIndex(PROCESS_NAMES, p?.process),
-    endOfLife: resolveListIndex(EOL_NAMES, p?.endOfLife),
-  }));
+  return parts.map((p) => {
+    const material = resolveListIndex(MATERIAL_NAMES, p?.material);
+    return {
+      name: p?.name ?? null,
+      material,
+      weight: p?.weight ?? null,
+      process: resolveListIndex(PROCESS_NAMES, p?.process),
+      endOfLife: resolveListIndex(EOL_NAMES, p?.endOfLife),
+      estimate: material ? null : sanitizeEstimate(p?.estimate),
+    };
+  });
 }
 
 function buildExtractionPrompt() {
   return `You extract structured part data from a free-text product description for a Life Cycle Assessment calculator.
 
 Output ONLY the JSON object below and absolutely nothing else: no markdown code fences, no "Here is the JSON:", no reasoning, no explanation, no follow-up questions, before or after it. Your entire response must be parseable as JSON on its own. Keep it short -- do not add extra fields, comments, or repeated/padded text.
-{"parts":[{"name":string,"material":number|null,"weight":number|null,"process":number|null,"endOfLife":number|null}]}
+{"parts":[{"name":string,"material":number|null,"weight":number|null,"process":number|null,"endOfLife":number|null,"estimate":{"ecoCost":number,"co2e":number,"water":number,"energyIn":number}|null}]}
 
 Rules:
 - "material" is the NUMBER of the single best-matching entry in this numbered list, or null if nothing clearly matches. Never output a material's name as text -- only its number, or null:
@@ -258,8 +278,9 @@ ${numberedList(PROCESS_NAMES)}
 - "endOfLife" is the NUMBER of the matching entry in this numbered list, or null if not mentioned:
 ${numberedList(EOL_NAMES)}
 - "weight" is in kilograms as a plain number (convert other units), or null if not stated.
+- "estimate": ONLY set this when "material" is null (nothing in the list above fits) AND you have real general knowledge of that material's environmental footprint. Give your own best-guess PER-KILOGRAM figures: ecoCost in euros/kg, co2e in kgCO2e/kg, water in L/kg, energyIn in kWh/kg. These get shown to the user clearly labeled as an unverified AI estimate, not as reference data, so a reasonable ballpark is genuinely useful -- but leave it null if you don't actually have a grounded basis for the numbers (never invent figures with no basis). Always null when "material" is non-null.
 - Create one entry in "parts" per distinct physical component described. A single simple product is one entry, and cap it at 10 entries even if more are described.
-- Only give a number when you're genuinely confident which one specific entry fits -- a wrong number is worse than null, so when unsure (or nothing in the list actually matches), use null.
+- Only give a material number when you're genuinely confident which one specific entry fits -- a wrong number is worse than null. When unsure, use null for "material" and fall back to "estimate" instead if you can.
 - If nothing usable is described, respond with {"parts":[]} -- never refuse, apologize, or ask a clarifying question instead.`;
 }
 

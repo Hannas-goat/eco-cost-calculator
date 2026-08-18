@@ -114,9 +114,23 @@ the browser), a PDF, a Word (`.docx`) or Excel (`.xls`/`.xlsx`) document, or
 an image (a product photo, spec sheet, or handwritten notes) — and an AI
 call extracts structured parts from it. Everything is matched against the
 real material/process/end-of-life names in `data.js`, same validation as the
-CSV upload, so a name the AI gets wrong never silently becomes a real part
-(it's skipped with an explanation instead). Suggestions are added directly
-to the product; review them before trusting the numbers.
+CSV upload, so a name the AI gets wrong never silently becomes a real part.
+Suggestions are added directly to the product; review them before trusting
+the numbers.
+
+When a part's material doesn't match anything in `data.js` at all (the
+reference catalog is necessarily finite — it can't cover every real-world
+material), the AI can fall back to its own best-guess eco-cost/carbon/water/
+energy figures instead of just giving up. These are added as a custom line
+item named `"<part> (AI-estimated — not in reference data, verify before
+trusting)"`, so they're clearly distinguished from the vetted catalog
+figures everywhere they show up (breakdowns, exports, everything reads the
+name as-is). The model is only asked for an estimate when it has no
+catalog match and is told explicitly to leave it blank rather than invent
+one with no grounding; the server additionally rejects any estimate field
+that isn't a finite, non-negative, plausibly-scaled number before it ever
+reaches the client. If neither a catalog match nor a usable estimate comes
+back, that part is still skipped with an explanation, same as before.
 
 Uses NVIDIA's OpenAI-compatible API (`https://build.nvidia.com`) — text
 documents go to a text model; images go to a separate vision-capable model,
