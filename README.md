@@ -146,6 +146,16 @@ first (or first-to-last) braces are the real answer — models often wrap
 JSON in commentary despite being told not to, and a naive extraction breaks
 the moment that commentary itself contains any brace-like text.
 
+The model is asked to return a **list number**, not a name, for each
+material/process/end-of-life match (e.g. `39` rather than `"Graphite
+(battery anode)"`), which the server then resolves back to the real name.
+An earlier version asked for the exact name string and, despite explicit
+instructions and examples, the model would sometimes invent a plausible
+but non-existent variant (e.g. `"Carbon (activated)"`) instead of the real
+catalog entry — a wrong number is a much narrower failure mode than a
+wrong string, and any out-of-range or non-numeric response just resolves
+to "no match" rather than a fabricated-looking name.
+
 ## Accounts
 
 Optional — the calculator works fully without signing in; saved scenarios

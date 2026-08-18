@@ -217,21 +217,49 @@ const MATERIAL_NAMES = MATERIALS.map((m) => m.name);
 const PROCESS_NAMES = PROCESSES.map((p) => p.name);
 const EOL_NAMES = END_OF_LIFE.map((e) => e.name);
 
+// Numbered rather than a plain name list: asking the model to copy a name string
+// exactly, even with explicit examples, still let it invent close-but-wrong text
+// (e.g. "Carbon (activated)" for what should have been "Graphite (battery anode)"
+// -- plausible-sounding, but not in the list, and a plain string comparison can't
+// tell "close" from "correct"). A number is much harder to almost-get-right: it's
+// either a valid index we can resolve to the real name, or it isn't, so a model
+// slip-up degrades to null (safe) instead of a fabricated-looking match.
+function numberedList(names) {
+  return names.map((n, i) => `${i + 1}. ${n}`).join('\n');
+}
+
+function resolveListIndex(list, value) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 1 || n > list.length) return null;
+  return list[n - 1];
+}
+
+function resolvePartIndices(parts) {
+  return parts.map((p) => ({
+    name: p?.name ?? null,
+    material: resolveListIndex(MATERIAL_NAMES, p?.material),
+    weight: p?.weight ?? null,
+    process: resolveListIndex(PROCESS_NAMES, p?.process),
+    endOfLife: resolveListIndex(EOL_NAMES, p?.endOfLife),
+  }));
+}
+
 function buildExtractionPrompt() {
   return `You extract structured part data from a free-text product description for a Life Cycle Assessment calculator.
 
 Output ONLY the JSON object below and absolutely nothing else: no markdown code fences, no "Here is the JSON:", no reasoning, no explanation, no follow-up questions, before or after it. Your entire response must be parseable as JSON on its own. Keep it short -- do not add extra fields, comments, or repeated/padded text.
-{"parts":[{"name":string,"material":string|null,"weight":number|null,"process":string|null,"endOfLife":string|null}]}
+{"parts":[{"name":string,"material":number|null,"weight":number|null,"process":number|null,"endOfLife":number|null}]}
 
 Rules:
-- "material" must be one of the EXACT strings in this list, or null -- never output any other text for this field, even a close paraphrase or the literal word the source text used: ${MATERIAL_NAMES.join(' | ')}
-  Example: source text says "carbon" for a battery electrode -> output "Graphite (battery anode)", NOT "Carbon" or "Graphite" (those exact strings aren't in the list). Source text says "carbon fibre panel" -> output "CFRP 25% carbon" instead, since that's the entry that actually fits. If you can't map it to one specific entry from the list with confidence, output null rather than any other text -- null is always a valid, correct answer; a string that isn't in the list above is never a valid answer.
-- "process" must be copied EXACTLY from this list, or null if not mentioned: ${PROCESS_NAMES.join(' | ')}
-- "endOfLife" must be copied EXACTLY from this list, or null if not mentioned: ${EOL_NAMES.join(' | ')}
+- "material" is the NUMBER of the single best-matching entry in this numbered list, or null if nothing clearly matches. Never output a material's name as text -- only its number, or null:
+${numberedList(MATERIAL_NAMES)}
+- "process" is the NUMBER of the matching entry in this numbered list, or null if not mentioned:
+${numberedList(PROCESS_NAMES)}
+- "endOfLife" is the NUMBER of the matching entry in this numbered list, or null if not mentioned:
+${numberedList(EOL_NAMES)}
 - "weight" is in kilograms as a plain number (convert other units), or null if not stated.
 - Create one entry in "parts" per distinct physical component described. A single simple product is one entry, and cap it at 10 entries even if more are described.
-- Never invent a material/process/end-of-life name that isn't character-for-character in the lists above -- use null instead.
-- Do not guess a material out of thin air just because a part was mentioned -- only set it when the text actually indicates a material.
+- Only give a number when you're genuinely confident which one specific entry fits -- a wrong number is worse than null, so when unsure (or nothing in the list actually matches), use null.
 - If nothing usable is described, respond with {"parts":[]} -- never refuse, apologize, or ask a clarifying question instead.`;
 }
 
@@ -321,7 +349,8 @@ async function callNvidiaForParts(messages, model) {
     };
   }
 
-  return { status: 200, body: { parts: parsed.parts.slice(0, 30) } }; // cap so a runaway response can't flood the page
+  // cap so a runaway response can't flood the page
+  return { status: 200, body: { parts: resolvePartIndices(parsed.parts.slice(0, 30)) } };
 }
 
 app.post('/api/ai-extract-parts', aiLimiter, async (req, res) => {
