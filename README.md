@@ -82,6 +82,16 @@ trucking) as a further estimate on the same "representative, not certified"
 basis as the rest of the carbon/water/energy dataset — see the comments in
 `data.js` for exactly how each figure was derived.
 
+## Battery materials
+
+`data.js` also includes a small "Battery materials" category (graphite anode,
+NMC and LFP cathodes, separator membrane, liquid electrolyte) since battery
+components don't map onto any of the general materials above. These aren't
+covered by the Idematapp eco-cost source either, so eco-cost is scaled from
+the carbon figure using the same ratio as the regional electricity/transport
+additions, rather than a second certified source — see the comment above the
+entries in `data.js` for specifics.
+
 ## Bulk part upload
 
 Instead of adding parts one at a time, upload a CSV with `Name`, `Material`,

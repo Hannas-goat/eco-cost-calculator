@@ -990,7 +990,7 @@ function applyAiPartSuggestions(suggestions) {
     const material = materialName ? MATERIALS.find(m => m.name.toLowerCase() === materialName.toLowerCase()) : null;
     const weight = Number(s.weight);
     if (!material || !weight || weight <= 0) {
-      skipped.push(`${name} (${!material ? `no matching material for "${materialName || 'none given'}"` : 'missing/invalid weight'})`);
+      skipped.push(`${name} (${!material ? `no reference material for "${materialName || 'none given'}"` : 'missing/invalid weight'})`);
       continue;
     }
     const processName = s.process ? String(s.process) : '';
@@ -1078,7 +1078,9 @@ async function extractPartsWithAI() {
   const { added, skipped } = applyAiPartSuggestions(Array.isArray(data.parts) ? data.parts : []);
   status.textContent = added
     ? `AI added ${added} part(s) — review them below before trusting the numbers.${skipped.length ? ` Skipped: ${skipped.join('; ')}.` : ''}`
-    : `No usable parts found.${skipped.length ? ` (${skipped.join('; ')})` : ' Try describing the material and weight more explicitly.'}`;
+    : skipped.length
+      ? `AI found ${skipped.length} part(s), but none matched the reference data: ${skipped.join('; ')}. Add these yourself via "Custom line item" below — it takes any material and impact numbers, not just what's in the dropdown.`
+      : 'No usable parts found. Try describing the material and weight more explicitly.';
   if (added) {
     textarea.value = '';
     fileInput.value = '';

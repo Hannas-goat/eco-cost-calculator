@@ -85,6 +85,22 @@ const MATERIALS = [
   // --- Bio-based (page 35) ---
   { id: 'bio-pe', category: 'Bio-based', name: 'bio-PE (Polyethylene, not bio-degradable)', ecoCost: 0.38, co2e: 0.8, water: 250, energyIn: 18, recycledPct: 0 },
   { id: 'ethanol-bio', category: 'Bio-based', name: 'Ethanol (bio)', ecoCost: 0.190, co2e: 0.5, water: 300, energyIn: 9, recycledPct: 0 },
+
+  // --- Battery materials ---
+  // Not covered by the Idematapp eco-cost source at all (a niche/specialised
+  // category outside its scope), so ecoCost here is scaled from the co2e
+  // figure using the same ~0.36 EUR-per-kgCO2e ratio applied to the regional
+  // ENERGY/TRANSPORT additions below, for internal consistency rather than a
+  // second certified source. co2e/water/energyIn are representative figures
+  // compiled from public Li-ion battery LCA literature (cell/pack studies),
+  // not a certified source -- see "About the data" in README.md. recycledPct
+  // is 0 for all entries: battery-grade material is normally virgin-sourced,
+  // and recycled-content claims here aren't something this app can verify.
+  { id: 'graphite-anode', category: 'Battery materials', name: 'Graphite (battery anode)', ecoCost: 3.20, co2e: 9.0, water: 50, energyIn: 70, recycledPct: 0 },
+  { id: 'nmc-cathode', category: 'Battery materials', name: 'Lithium NMC cathode (Nickel Manganese Cobalt Oxide)', ecoCost: 6.50, co2e: 18.0, water: 150, energyIn: 90, recycledPct: 0 },
+  { id: 'lfp-cathode', category: 'Battery materials', name: 'Lithium LFP cathode (Lithium Iron Phosphate)', ecoCost: 2.90, co2e: 8.0, water: 60, energyIn: 45, recycledPct: 0 },
+  { id: 'battery-separator', category: 'Battery materials', name: 'Battery separator (PP/PE microporous membrane)', ecoCost: 1.45, co2e: 4.0, water: 40, energyIn: 30, recycledPct: 0 },
+  { id: 'battery-electrolyte', category: 'Battery materials', name: 'Battery electrolyte (liquid, LiPF6-based)', ecoCost: 2.15, co2e: 6.0, water: 80, energyIn: 35, recycledPct: 0 },
 ];
 
 // Processing eco-costs, euro per kg of material processed (pages 34-35).
