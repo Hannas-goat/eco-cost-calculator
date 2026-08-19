@@ -168,17 +168,22 @@ told explicitly not to search speculatively for every part. Without
 sent in the request at all), so extraction works exactly as it did before
 this was added — just without the ability to look anything up.
 
-The server never waits more than 60 seconds on the whole extraction —
+The server never waits more than 100 seconds on the whole extraction —
 covering every model call *and* every search it runs, not per-call — before
 giving up and returning a clear timeout error (the browser has its own
-75-second backstop in case the server itself stalls). An earlier version had
-no timeout at all, so a slow/stuck upstream response could hang
+120-second backstop in case the server itself stalls). An earlier version
+had no timeout at all, so a slow/stuck upstream response could hang
 indefinitely; giving each search-then-reask round its own fresh timeout
 budget would have reintroduced basically the same problem by letting total
 latency multiply by however many rounds the model decides to run, so all
-rounds share one clock instead. The model can run at most 3 search rounds
-before being asked (with search no longer offered) to settle on a final
-answer regardless. JSON extraction
+rounds share one clock instead. (An initial 60-second version of this
+budget turned out too tight once tested against real NVIDIA/Tavily network
+latency rather than the instant mock servers it was first verified
+against — real round trips compound fast across multiple search rounds.)
+The model can run at most 2 search rounds before being asked (with search
+no longer offered) to settle on a final answer regardless, and every
+search a round asks for runs concurrently rather than one-by-one. JSON
+extraction
 from the model's reply also tries every brace-delimited candidate in the
 text and validates its shape before accepting it, rather than assuming the
 first (or first-to-last) braces are the real answer — models often wrap

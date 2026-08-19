@@ -378,7 +378,7 @@ async function searchWeb(query, signal) {
   }
 }
 
-const MAX_TOOL_ROUNDS = 3; // caps how many search-then-reask cycles a single request can do
+const MAX_TOOL_ROUNDS = 2; // caps how many search-then-reask cycles a single request can do
 
 // Shared by both the text and file endpoints: calls NVIDIA's chat/completions with a given
 // model + messages, optionally letting the model call the search_web tool (only when
@@ -401,7 +401,7 @@ const MAX_TOOL_ROUNDS = 3; // caps how many search-then-reask cycles a single re
 // accepts one that parses to an object with a "parts" array.
 async function callNvidiaForParts(messages, model) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000); // shared budget for the whole loop
+  const timeoutId = setTimeout(() => controller.abort(), 100000); // shared budget for the whole loop
   try {
     const workingMessages = [...messages];
     const allowTools = Boolean(TAVILY_API_KEY);
@@ -423,7 +423,7 @@ async function callNvidiaForParts(messages, model) {
         });
       } catch (e) {
         if (e.name === 'AbortError') {
-          return { status: 504, body: { error: 'The AI service (including any web searches it ran) took longer than 60 seconds, so the request was cancelled. Please try again -- if it keeps happening, try a shorter or more specific description.' } };
+          return { status: 504, body: { error: 'The AI service (including any web searches it ran) took longer than 100 seconds, so the request was cancelled. Please try again -- if it keeps happening, try a shorter or more specific description.' } };
         }
         return { status: 502, body: { error: 'Could not reach the AI service: ' + e.message } };
       }
@@ -442,12 +442,16 @@ async function callNvidiaForParts(messages, model) {
       const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
       if (toolCalls.length && round < MAX_TOOL_ROUNDS) {
         workingMessages.push(message); // the assistant's tool-call request, required context for the follow-up
-        for (const call of toolCalls) {
+        // Run every search the model asked for in this round concurrently, not one-by-one --
+        // a round that needs 2-3 lookups shouldn't pay for their latency serially when
+        // they're independent queries.
+        const toolResults = await Promise.all(toolCalls.map(async (call) => {
           let query = '';
           try { query = JSON.parse(call.function?.arguments || '{}').query || ''; } catch (e) { /* malformed args -- proceed with empty query below */ }
           const result = query ? await searchWeb(query, controller.signal) : { error: 'No search query was provided.' };
-          workingMessages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
-        }
+          return { role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) };
+        }));
+        workingMessages.push(...toolResults);
         continue; // ask the model again, now with search results in context
       }
       if (toolCalls.length) {
