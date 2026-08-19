@@ -30,6 +30,14 @@ if (!NVIDIA_API_KEY) {
   console.warn('NVIDIA_API_KEY not set — AI part extraction is disabled (everything else still works).');
 }
 
+// Web search (optional — Tavily, https://tavily.com). Without it, extraction still works
+// exactly as before, just without the ability to look up details the given text doesn't
+// state; the model is never even told search exists in that case (no "tools" sent).
+const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
+if (NVIDIA_API_KEY && !TAVILY_API_KEY) {
+  console.warn('TAVILY_API_KEY not set — AI part extraction will work from the given text/file only, without web search.');
+}
+
 if (!JWT_SECRET) {
   console.error(
     'FATAL: JWT_SECRET is not set. Set it as an environment variable (a long random string) before starting the server.'
@@ -278,9 +286,10 @@ ${numberedList(PROCESS_NAMES)}
 - "endOfLife" is the NUMBER of the matching entry in this numbered list, or null if not mentioned:
 ${numberedList(EOL_NAMES)}
 - "weight" is in kilograms as a plain number (convert other units), or null if not stated.
-- "estimate": ONLY set this when "material" is null (nothing in the list above fits) AND you have real general knowledge of that material's environmental footprint. Give your own best-guess PER-KILOGRAM figures: ecoCost in euros/kg, co2e in kgCO2e/kg, water in L/kg, energyIn in kWh/kg. These get shown to the user clearly labeled as an unverified AI estimate, not as reference data, so a reasonable ballpark is genuinely useful -- but leave it null if you don't actually have a grounded basis for the numbers (never invent figures with no basis). Always null when "material" is non-null.
+- "estimate": ONLY set this when "material" is null (nothing in the list above fits) AND you have a real, grounded basis for that material's environmental footprint. Give your own best-guess PER-KILOGRAM figures: ecoCost in euros/kg, co2e in kgCO2e/kg, water in L/kg, energyIn in kWh/kg. These get shown to the user clearly labeled as an unverified AI estimate, not as reference data, so a reasonable ballpark is genuinely useful -- but leave it null if you don't actually have a grounded basis for the numbers (never invent figures with no basis). Always null when "material" is non-null.
 - Create one entry in "parts" per distinct physical component described. A single simple product is one entry, and cap it at 10 entries even if more are described.
 - Only give a material number when you're genuinely confident which one specific entry fits -- a wrong number is worse than null. When unsure, use null for "material" and fall back to "estimate" instead if you can.
+${TAVILY_API_KEY ? '- If the text names a specific real product but leaves out a detail you need (its typical weight, what a component is actually made of, etc.), use the search_web tool to look it up rather than immediately defaulting to null -- but only search when you have a genuinely specific, answerable question; don\'t search speculatively for every part, and don\'t search more than necessary to fill the gaps that actually matter for this product.' : ''}
 - If nothing usable is described, respond with {"parts":[]} -- never refuse, apologize, or ask a clarifying question instead.`;
 }
 
@@ -331,47 +340,147 @@ function extractPartsObject(text) {
   return null;
 }
 
-async function callNvidiaForParts(messages, model) {
-  let aiRes;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 45000); // hard cap -- never hang indefinitely
+const SEARCH_TOOL = {
+  type: 'function',
+  function: {
+    name: 'search_web',
+    description: 'Search the web to fill in a product detail (typical weight, material composition, etc.) that the given text doesn\'t state. Only call this when you actually need it -- not for every part, and not when the text already tells you what you need.',
+    parameters: {
+      type: 'object',
+      properties: { query: { type: 'string', description: 'A concise, specific web search query.' } },
+      required: ['query'],
+    },
+  },
+};
+
+// Runs a Tavily search (https://tavily.com) -- returns a small, model-readable result set,
+// or a graceful { error } string on any failure so a search hiccup degrades the loop instead
+// of crashing it. Shares the caller's AbortSignal so a search can never outlive the overall
+// request budget below.
+async function searchWeb(query, signal) {
+  if (!TAVILY_API_KEY) return { error: 'Web search is not configured.' };
   try {
-    aiRes = await fetch(`${NVIDIA_BASE_URL}/chat/completions`, {
+    const res = await fetch('https://api.tavily.com/search', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${NVIDIA_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, messages, temperature: 0.1, max_tokens: 1024 }),
-      signal: controller.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ api_key: TAVILY_API_KEY, query, search_depth: 'basic', max_results: 5, include_answer: true }),
+      signal,
     });
+    if (!res.ok) return { error: `Search failed (HTTP ${res.status}).` };
+    const data = await res.json().catch(() => null);
+    if (!data) return { error: 'Search returned an unreadable response.' };
+    const results = Array.isArray(data.results)
+      ? data.results.slice(0, 5).map((r) => ({ title: r.title, url: r.url, snippet: String(r.content || '').slice(0, 500) }))
+      : [];
+    return { answer: data.answer || null, results };
   } catch (e) {
-    if (e.name === 'AbortError') {
-      return { status: 504, body: { error: 'The AI service took longer than 45 seconds to respond, so the request was cancelled. Please try again -- if it keeps happening, the model may be overloaded; try a shorter description or a different NVIDIA_MODEL.' } };
+    return { error: e.name === 'AbortError' ? 'Search timed out.' : `Search error: ${e.message}` };
+  }
+}
+
+const MAX_TOOL_ROUNDS = 3; // caps how many search-then-reask cycles a single request can do
+
+// Shared by both the text and file endpoints: calls NVIDIA's chat/completions with a given
+// model + messages, optionally letting the model call the search_web tool (only when
+// TAVILY_API_KEY is set -- otherwise "tools" is never sent, so the model doesn't even know
+// search exists, and behavior is identical to before this was added). Extracts/validates the
+// {"parts":[...]} JSON out of whatever the model's final reply contains. Returns
+// { status, body } -- status is the HTTP status the route should respond with.
+//
+// One AbortController covers the ENTIRE loop (every model call and every search), not a
+// fresh timeout per round -- a per-round timeout would let total latency multiply by however
+// many search rounds happen, which is exactly the kind of unbounded wait this app has
+// already been burned by once (see the "45s timeout" fix elsewhere in this file).
+//
+// Two earlier versions of the JSON extraction step both broke on rambling responses in
+// different ways: a greedy "first { ... last }" regex spans across ANY brace-like text
+// before/after the real JSON; and just balancing braces from the very first "{" still picks
+// the wrong span if there's earlier brace-like chatter (e.g. "my analysis {of the product}:
+// {...}" -- "{of the product}" is itself perfectly balanced, just not valid/right JSON).
+// extractPartsObject instead tries every "{" in the text as a candidate start and only
+// accepts one that parses to an object with a "parts" array.
+async function callNvidiaForParts(messages, model) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000); // shared budget for the whole loop
+  try {
+    const workingMessages = [...messages];
+    const allowTools = Boolean(TAVILY_API_KEY);
+
+    for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+      let aiRes;
+      try {
+        aiRes = await fetch(`${NVIDIA_BASE_URL}/chat/completions`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${NVIDIA_API_KEY}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            messages: workingMessages,
+            temperature: 0.1,
+            max_tokens: 1024,
+            ...(allowTools && round < MAX_TOOL_ROUNDS ? { tools: [SEARCH_TOOL], tool_choice: 'auto' } : {}),
+          }),
+          signal: controller.signal,
+        });
+      } catch (e) {
+        if (e.name === 'AbortError') {
+          return { status: 504, body: { error: 'The AI service (including any web searches it ran) took longer than 60 seconds, so the request was cancelled. Please try again -- if it keeps happening, try a shorter or more specific description.' } };
+        }
+        return { status: 502, body: { error: 'Could not reach the AI service: ' + e.message } };
+      }
+
+      if (!aiRes.ok) {
+        const errText = await aiRes.text().catch(() => '');
+        return { status: 502, body: { error: `AI service error (${aiRes.status}): ${errText.slice(0, 200)}` } };
+      }
+
+      const data = await aiRes.json().catch(() => null);
+      const message = data?.choices?.[0]?.message;
+      if (!message) {
+        return { status: 502, body: { error: 'AI response was missing the expected content.' } };
+      }
+
+      const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+      if (toolCalls.length && round < MAX_TOOL_ROUNDS) {
+        workingMessages.push(message); // the assistant's tool-call request, required context for the follow-up
+        for (const call of toolCalls) {
+          let query = '';
+          try { query = JSON.parse(call.function?.arguments || '{}').query || ''; } catch (e) { /* malformed args -- proceed with empty query below */ }
+          const result = query ? await searchWeb(query, controller.signal) : { error: 'No search query was provided.' };
+          workingMessages.push({ role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) });
+        }
+        continue; // ask the model again, now with search results in context
+      }
+      if (toolCalls.length) {
+        // Reached the final round (tools weren't even offered this time) and the model
+        // still tried to call one -- treat it the same as never settling, rather than
+        // falling through to a confusing "missing content" error below.
+        return { status: 502, body: { error: 'The AI ran multiple searches without settling on a final answer. Try a more specific description.' } };
+      }
+
+      const content = message.content;
+      if (typeof content !== 'string') {
+        return { status: 502, body: { error: 'AI response was missing the expected content.' } };
+      }
+
+      const parsed = extractPartsObject(content);
+      if (!parsed) {
+        return {
+          status: 502,
+          body: { error: `AI response didn't contain a usable {"parts":[...]} object (it may have rambled, been cut off, or refused). Response started with: ${content.slice(0, 200)}` },
+        };
+      }
+
+      // cap so a runaway response can't flood the page
+      return { status: 200, body: { parts: resolvePartIndices(parsed.parts.slice(0, 30)) } };
     }
-    return { status: 502, body: { error: 'Could not reach the AI service: ' + e.message } };
+    // Unreachable in practice: every loop iteration above returns or continues, and
+    // continuing is only allowed while round < MAX_TOOL_ROUNDS, so the final iteration
+    // (round === MAX_TOOL_ROUNDS) always hits a return -- kept as a defensive fallback
+    // in case that invariant ever changes.
+    return { status: 502, body: { error: 'The AI ran multiple searches without settling on a final answer. Try a more specific description.' } };
   } finally {
     clearTimeout(timeoutId);
   }
-
-  if (!aiRes.ok) {
-    const errText = await aiRes.text().catch(() => '');
-    return { status: 502, body: { error: `AI service error (${aiRes.status}): ${errText.slice(0, 200)}` } };
-  }
-
-  const data = await aiRes.json().catch(() => null);
-  const content = data?.choices?.[0]?.message?.content;
-  if (typeof content !== 'string') {
-    return { status: 502, body: { error: 'AI response was missing the expected content.' } };
-  }
-
-  const parsed = extractPartsObject(content);
-  if (!parsed) {
-    return {
-      status: 502,
-      body: { error: `AI response didn't contain a usable {"parts":[...]} object (it may have rambled, been cut off, or refused). Response started with: ${content.slice(0, 200)}` },
-    };
-  }
-
-  // cap so a runaway response can't flood the page
-  return { status: 200, body: { parts: resolvePartIndices(parsed.parts.slice(0, 30)) } };
 }
 
 app.post('/api/ai-extract-parts', aiLimiter, async (req, res) => {

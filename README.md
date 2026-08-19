@@ -149,16 +149,36 @@ To enable it:
    `NVIDIA_VISION_MODEL` (defaults to `meta/llama-3.2-90b-vision-instruct` —
    this default is the most likely to need changing, since vision-model
    availability varies by plan/key), or `NVIDIA_BASE_URL`.
+4. Optionally, for web search: get a key from [tavily.com](https://tavily.com)
+   (free tier available) and set it as `TAVILY_API_KEY`, same place as above.
 
 Until `NVIDIA_API_KEY` is set, the feature returns a clear "not configured"
 message and everything else keeps working exactly as before — same pattern
 as the optional Supabase/Turso setup elsewhere in this README. Rate-limited
 server-side (10 requests / 10 minutes per IP) since it hits a paid API.
 
-The server never waits more than 45 seconds on NVIDIA before giving up and
-returning a clear timeout error (the browser has its own 55-second backstop
-in case the server itself stalls) — earlier versions had no timeout at all,
-so a slow/stuck upstream response could hang indefinitely. JSON extraction
+**Web search (optional, on top of the above):** with a
+[Tavily](https://tavily.com) API key set as `TAVILY_API_KEY`, the model can
+call a `search_web` tool mid-extraction to look up a detail your text/file
+doesn't state — a real product's typical weight, what a component is
+actually made of, etc. — instead of just leaving it blank. It's only asked
+to do this when it actually names something specific and answerable; it's
+told explicitly not to search speculatively for every part. Without
+`TAVILY_API_KEY`, the model is never even told the tool exists (no `tools`
+sent in the request at all), so extraction works exactly as it did before
+this was added — just without the ability to look anything up.
+
+The server never waits more than 60 seconds on the whole extraction —
+covering every model call *and* every search it runs, not per-call — before
+giving up and returning a clear timeout error (the browser has its own
+75-second backstop in case the server itself stalls). An earlier version had
+no timeout at all, so a slow/stuck upstream response could hang
+indefinitely; giving each search-then-reask round its own fresh timeout
+budget would have reintroduced basically the same problem by letting total
+latency multiply by however many rounds the model decides to run, so all
+rounds share one clock instead. The model can run at most 3 search rounds
+before being asked (with search no longer offered) to settle on a final
+answer regardless. JSON extraction
 from the model's reply also tries every brace-delimited candidate in the
 text and validates its shape before accepting it, rather than assuming the
 first (or first-to-last) braces are the real answer — models often wrap

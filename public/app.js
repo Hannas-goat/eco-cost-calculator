@@ -1052,18 +1052,19 @@ function stopAiTimer() {
 }
 
 // Backstop in case the server itself stalls (not just NVIDIA, which the server already
-// times out on its own end after 45s) -- slightly longer than that, so the server's own
+// times out on its own end after 60s -- that budget covers any web searches the AI runs
+// too, not just the model call itself) -- slightly longer than that, so the server's own
 // clearer timeout message wins in the normal case and this is just a last resort.
 async function fetchAiWithTimeout(url, options) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 55000);
+  const timeoutId = setTimeout(() => controller.abort(), 75000);
   try {
     const res = await fetch(url, { ...options, signal: controller.signal });
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, data };
   } catch (e) {
     if (e.name === 'AbortError') {
-      return { ok: false, data: { error: 'This is taking far longer than expected (over 55s) and was cancelled on this end. The AI service may be overloaded — try again in a bit, or try a shorter description.' } };
+      return { ok: false, data: { error: 'This is taking far longer than expected (over 75s) and was cancelled on this end. The AI service may be overloaded — try again in a bit, or try a shorter description.' } };
     }
     return { ok: false, data: { error: 'Network error: ' + e.message } };
   } finally {
@@ -1079,14 +1080,14 @@ async function extractPartsWithAI() {
   let ok, data;
   if (aiAttachedFile) {
     const isImage = aiAttachedFile.type.startsWith('image/');
-    startAiTimer(isImage ? '15-25s for images' : '10-20s for documents');
+    startAiTimer(isImage ? '15-25s for images, up to 60s if it needs to search the web' : '10-20s for documents, up to 60s if it needs to search the web');
     const formData = new FormData();
     formData.append('file', aiAttachedFile);
     ({ ok, data } = await fetchAiWithTimeout('/api/ai-extract-parts-from-file', { method: 'POST', body: formData, credentials: 'same-origin' }));
   } else {
     const description = textarea.value.trim();
     if (!description) { status.textContent = 'Describe the product or attach a file first.'; return; }
-    startAiTimer('5-10s for text');
+    startAiTimer('5-10s for text, up to 60s if it needs to search the web');
     ({ ok, data } = await fetchAiWithTimeout('/api/ai-extract-parts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
