@@ -24,7 +24,12 @@ const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 // model name in particular is a best guess and the one most likely to need adjusting.
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
-const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'meta/llama-3.1-70b-instruct';
+// Defaults to the 8B model, not 70B: the 70B model's per-call latency was the dominant cost
+// in real (non-mocked) testing, and compounds badly across multiple search rounds. The 8B
+// model still supports tool calling and this task is fairly bounded (pick a list index, or
+// write a few short JSON objects) -- if match quality regresses noticeably for your traffic,
+// override NVIDIA_MODEL back to a larger model and accept the slower response time.
+const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'meta/llama-3.1-8b-instruct';
 const NVIDIA_VISION_MODEL = process.env.NVIDIA_VISION_MODEL || 'meta/llama-3.2-90b-vision-instruct';
 if (!NVIDIA_API_KEY) {
   console.warn('NVIDIA_API_KEY not set — AI part extraction is disabled (everything else still works).');
@@ -378,7 +383,7 @@ async function searchWeb(query, signal) {
   }
 }
 
-const MAX_TOOL_ROUNDS = 2; // caps how many search-then-reask cycles a single request can do
+const MAX_TOOL_ROUNDS = 1; // caps how many search-then-reask cycles a single request can do
 
 // Shared by both the text and file endpoints: calls NVIDIA's chat/completions with a given
 // model + messages, optionally letting the model call the search_web tool (only when
@@ -416,7 +421,11 @@ async function callNvidiaForParts(messages, model) {
             model,
             messages: workingMessages,
             temperature: 0.1,
-            max_tokens: 1024,
+            // 10 parts of compact JSON, or a short tool-call request, comfortably fits well
+            // under this -- capping it bounds worst-case generation time without truncating
+            // any real response (a genuinely truncated response still fails safely: it just
+            // won't parse, caught below).
+            max_tokens: 512,
             ...(allowTools && round < MAX_TOOL_ROUNDS ? { tools: [SEARCH_TOOL], tool_choice: 'auto' } : {}),
           }),
           signal: controller.signal,

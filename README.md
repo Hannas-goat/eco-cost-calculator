@@ -145,10 +145,13 @@ To enable it:
 1. Get an API key from [build.nvidia.com](https://build.nvidia.com).
 2. Set `NVIDIA_API_KEY` as an environment variable on your Render service
    (Environment tab — same place as `JWT_SECRET`/`TURSO_*`).
-3. Optionally set `NVIDIA_MODEL` (defaults to `meta/llama-3.1-70b-instruct`),
-   `NVIDIA_VISION_MODEL` (defaults to `meta/llama-3.2-90b-vision-instruct` —
-   this default is the most likely to need changing, since vision-model
-   availability varies by plan/key), or `NVIDIA_BASE_URL`.
+3. Optionally set `NVIDIA_MODEL` (defaults to `meta/llama-3.1-8b-instruct` —
+   picked for speed over the larger 70B alternative; override this if you'd
+   rather trade response time for potentially better matching on hard
+   descriptions), `NVIDIA_VISION_MODEL` (defaults to
+   `meta/llama-3.2-90b-vision-instruct` — this one's the most likely to need
+   changing, since vision-model availability varies by plan/key), or
+   `NVIDIA_BASE_URL`.
 4. Optionally, for web search: get a key from [tavily.com](https://tavily.com)
    (free tier available) and set it as `TAVILY_API_KEY`, same place as above.
 
@@ -171,19 +174,18 @@ this was added — just without the ability to look anything up.
 The server never waits more than 100 seconds on the whole extraction —
 covering every model call *and* every search it runs, not per-call — before
 giving up and returning a clear timeout error (the browser has its own
-120-second backstop in case the server itself stalls). An earlier version
-had no timeout at all, so a slow/stuck upstream response could hang
-indefinitely; giving each search-then-reask round its own fresh timeout
-budget would have reintroduced basically the same problem by letting total
-latency multiply by however many rounds the model decides to run, so all
-rounds share one clock instead. (An initial 60-second version of this
-budget turned out too tight once tested against real NVIDIA/Tavily network
-latency rather than the instant mock servers it was first verified
-against — real round trips compound fast across multiple search rounds.)
-The model can run at most 2 search rounds before being asked (with search
-no longer offered) to settle on a final answer regardless, and every
-search a round asks for runs concurrently rather than one-by-one. JSON
-extraction
+120-second backstop in case the server itself stalls). That's a safety net,
+not a target: real usage was hitting it regularly with the 70B model, so
+actual latency is now kept down at the source instead by defaulting to the
+much faster 8B model and capping the loop at a single search-then-reask
+round (down from a first attempt at 2-3) before the model is asked, with
+search no longer offered, to settle on a final answer regardless. Every
+search a round asks for still runs concurrently rather than one-by-one, for
+whatever few cases genuinely need more than one lookup at once. If speed
+still matters more than the search capability for your traffic, the
+fastest fix available without a redeploy is removing `TAVILY_API_KEY` —
+that reverts to the original single-call flow with no search overhead at
+all. JSON extraction
 from the model's reply also tries every brace-delimited candidate in the
 text and validates its shape before accepting it, rather than assuming the
 first (or first-to-last) braces are the real answer — models often wrap
