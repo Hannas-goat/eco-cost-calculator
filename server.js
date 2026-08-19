@@ -24,12 +24,13 @@ const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 // model name in particular is a best guess and the one most likely to need adjusting.
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
-// Defaults to the 8B model, not 70B: the 70B model's per-call latency was the dominant cost
-// in real (non-mocked) testing, and compounds badly across multiple search rounds. The 8B
-// model still supports tool calling and this task is fairly bounded (pick a list index, or
-// write a few short JSON objects) -- if match quality regresses noticeably for your traffic,
-// override NVIDIA_MODEL back to a larger model and accept the slower response time.
-const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'meta/llama-3.1-8b-instruct';
+// The 8B model was tried here briefly for speed, but proved unreliable at actually
+// following the requested JSON schema -- it would sometimes wrap the whole response in a
+// hallucinated fake tool-call shape instead of performing the extraction at all (e.g.
+// {"name":"extract_parts","parameters":{"text": <raw input echoed back>}}), which isn't
+// something the parser can recover from since there's no real extracted data in it.
+// The 70B model never produced that failure mode, so it's the default despite being slower.
+const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'meta/llama-3.1-70b-instruct';
 const NVIDIA_VISION_MODEL = process.env.NVIDIA_VISION_MODEL || 'meta/llama-3.2-90b-vision-instruct';
 if (!NVIDIA_API_KEY) {
   console.warn('NVIDIA_API_KEY not set — AI part extraction is disabled (everything else still works).');
