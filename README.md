@@ -136,77 +136,69 @@ useful than none. If neither a catalog match nor any usable estimate comes
 back at all, that part is still skipped with an explanation, same as
 before.
 
-Uses NVIDIA's OpenAI-compatible API (`https://build.nvidia.com`) — text
-documents go to a text model; images go to a separate vision-capable model,
-since not every model on a given key/plan supports both. PDF text comes via
+Uses [Google's Gemini API](https://ai.google.dev). PDF text comes via
 `pdf-parse`, `.docx` via `mammoth`, `.xls`/`.xlsx` via `xlsx` (converted to
-CSV text) — all parsed **server-side**, capped at 15 MB per file.
+CSV text) — all parsed **server-side**, capped at 15 MB per file. Images go
+straight to Gemini as inline image data — Gemini's Flash models are
+natively multimodal, so unlike a lot of other providers there's no separate
+vision-only model to configure.
 
 This calls the AI from the **server**, never the browser — the API key is a
 secret credential and must never end up in any file shipped to the client.
 To enable it:
 
-1. Get an API key from [build.nvidia.com](https://build.nvidia.com).
-2. Set `NVIDIA_API_KEY` as an environment variable on your Render service
+1. Get a free API key from [Google AI Studio](https://ai.google.dev) (no
+   credit card required for the free tier).
+2. Set `GEMINI_API_KEY` as an environment variable on your Render service
    (Environment tab — same place as `JWT_SECRET`/`TURSO_*`).
-3. Optionally set `NVIDIA_MODEL` (defaults to `meta/llama-3.1-70b-instruct`;
-   a faster 8B variant was tried as the default here briefly, but it wasn't
-   reliable about actually following the requested JSON schema — it would
-   sometimes wrap the whole response in a hallucinated fake tool-call shape
-   instead of doing the extraction at all, which isn't something recoverable
-   after the fact since there's no real data in it), `NVIDIA_VISION_MODEL`
-   (defaults to `meta/llama-3.2-90b-vision-instruct` — this one's the most
-   likely to need changing, since vision-model availability varies by
-   plan/key), or `NVIDIA_BASE_URL`.
-4. Optionally, for web search: get a key from [tavily.com](https://tavily.com)
-   (free tier available) and set it as `TAVILY_API_KEY`, same place as above.
+3. Optionally set `GEMINI_MODEL` (defaults to `gemini-2.0-flash`),
+   `GEMINI_BASE_URL`, or `GEMINI_ENABLE_SEARCH=false` to turn off web search
+   (see below) without removing the key entirely.
 
-Until `NVIDIA_API_KEY` is set, the feature returns a clear "not configured"
+Until `GEMINI_API_KEY` is set, the feature returns a clear "not configured"
 message and everything else keeps working exactly as before — same pattern
 as the optional Supabase/Turso setup elsewhere in this README. Rate-limited
-server-side (10 requests / 10 minutes per IP) since it hits a paid API.
+server-side (10 requests / 10 minutes per IP) since it hits a paid-beyond-
+free-tier API.
 
-**Web search (optional, on top of the above):** with a
-[Tavily](https://tavily.com) API key set as `TAVILY_API_KEY`, the model can
-call a `search_web` tool mid-extraction to look up a detail your text/file
-doesn't state — a real product's typical weight, what a component is
-actually made of, etc. — instead of just leaving it blank. It's only asked
-to do this when it actually names something specific and answerable; it's
-told explicitly not to search speculatively for every part. Without
-`TAVILY_API_KEY`, the model is never even told the tool exists (no `tools`
-sent in the request at all), so extraction works exactly as it did before
-this was added — just without the ability to look anything up.
+**Structured output, not prompt-based hoping:** extraction uses Gemini's
+native `responseSchema` mode, which constrains generation to a fixed JSON
+shape at the API level rather than just asking the model nicely to follow a
+format described in the prompt. An earlier version of this feature (on a
+different provider) went through several rounds of prompt tightening —
+numbered list indices instead of name strings, worked examples for
+ambiguous cases — fighting the model returning subtly-off-schema output
+despite explicit instructions (e.g. inventing a plausible but non-existent
+material name, or once, on a smaller/faster model that was tried and
+reverted, wrapping the entire response in a hallucinated fake tool-call
+shape with no real data in it at all). A schema constraint closes off that
+whole failure class structurally instead of trying to out-word it.
 
-The server never waits more than 100 seconds on the whole extraction —
-covering every model call *and* every search it runs, not per-call — before
-giving up and returning a clear timeout error (the browser has its own
-120-second backstop in case the server itself stalls). The loop is capped
-at a single search-then-reask round (down from a first attempt at 2-3)
-before the model is asked, with search no longer offered, to settle on a
-final answer regardless, and every search a round asks for runs
-concurrently rather than one-by-one — both still in effect and both purely
-upside (less latency, no quality tradeoff). The 8B-model swap that was
-tried alongside those two is not, for the reliability reason noted above,
-so 70B remains the default despite being the slower option. If speed still
-matters more than the search capability for your traffic, the fastest fix
-available without a redeploy is removing `TAVILY_API_KEY` — that reverts to
-the original single-call flow with no search overhead at all. JSON
-extraction
-from the model's reply also tries every brace-delimited candidate in the
-text and validates its shape before accepting it, rather than assuming the
-first (or first-to-last) braces are the real answer — models often wrap
-JSON in commentary despite being told not to, and a naive extraction breaks
-the moment that commentary itself contains any brace-like text.
+**Web search:** Gemini has Google Search grounding built into the API — no
+separate search-provider key needed. When enabled (the default;
+`GEMINI_ENABLE_SEARCH=false` to disable), extraction runs as two calls: an
+optional research pass with search grounding enabled to look up a detail
+your text/file doesn't state (a real product's typical weight, what a
+component is actually made of, etc.), then the structured extraction call
+with whatever it found folded in as extra context. These have to be two
+separate calls — Gemini doesn't support combining search grounding with
+`responseSchema` in the same request — but a failed or unhelpful research
+pass never sinks the whole extraction; it just proceeds without whatever
+that lookup would have filled in. The server never waits more than 60
+seconds across both calls combined (the browser has its own 75-second
+backstop in case the server itself stalls).
+
+The `extractPartsObject` brace-scanning JSON parser from an earlier version
+of this feature is kept as a defensive fallback in case `JSON.parse` ever
+fails on what's supposed to be guaranteed-clean structured output, but
+shouldn't normally be reachable.
 
 The model is asked to return a **list number**, not a name, for each
 material/process/end-of-life match (e.g. `39` rather than `"Graphite
-(battery anode)"`), which the server then resolves back to the real name.
-An earlier version asked for the exact name string and, despite explicit
-instructions and examples, the model would sometimes invent a plausible
-but non-existent variant (e.g. `"Carbon (activated)"`) instead of the real
-catalog entry — a wrong number is a much narrower failure mode than a
-wrong string, and any out-of-range or non-numeric response just resolves
-to "no match" rather than a fabricated-looking name.
+(battery anode)"`), which the server then resolves back to the real name —
+a wrong number is a much narrower failure mode than a wrong string, and any
+out-of-range or non-numeric response just resolves to "no match" rather
+than a fabricated-looking name.
 
 ## Accounts
 
