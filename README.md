@@ -151,7 +151,7 @@ To enable it:
    credit card required for the free tier).
 2. Set `GEMINI_API_KEY` as an environment variable on your Render service
    (Environment tab — same place as `JWT_SECRET`/`TURSO_*`).
-3. Optionally set `GEMINI_MODEL` (defaults to `gemini-2.0-flash`),
+3. Optionally set `GEMINI_MODEL` (defaults to `gemini-3.6-flash`),
    `GEMINI_BASE_URL`, or `GEMINI_ENABLE_SEARCH=false` to turn off web search
    (see below) without removing the key entirely.
 
