@@ -255,11 +255,17 @@ function resolveListIndex(list, value) {
 // always shown to the user as an unverified AI estimate, never as reference data.
 function sanitizeEstimate(estimate) {
   if (!estimate || typeof estimate !== 'object') return null;
+  // Coerce each of the 4 fields independently rather than rejecting the whole estimate the
+  // moment any single one is missing/malformed -- a model asked for 4 numbers per part, for
+  // potentially several parts in one response, won't always get every single one in a clean
+  // numeric format. Discarding 3 good numbers because a 4th was e.g. "~2.5" or omitted threw
+  // away real, useful data for no reason. The caller (applyAiPartSuggestions, client-side)
+  // already checks that at least one field is actually positive before using this at all, so
+  // an estimate that's all zeros here still correctly gets treated as "no usable estimate".
   const out = {};
   for (const field of ['ecoCost', 'co2e', 'water', 'energyIn']) {
     const n = Number(estimate[field]);
-    if (!Number.isFinite(n) || n < 0 || n > 5000) return null;
-    out[field] = n;
+    out[field] = Number.isFinite(n) && n >= 0 ? Math.min(n, 5000) : 0;
   }
   return out;
 }
@@ -292,7 +298,7 @@ ${numberedList(PROCESS_NAMES)}
 - "endOfLife" is the NUMBER of the matching entry in this numbered list, or null if not mentioned:
 ${numberedList(EOL_NAMES)}
 - "weight" is in kilograms as a plain number (convert other units), or null if not stated.
-- "estimate": ONLY set this when "material" is null (nothing in the list above fits) AND you have a real, grounded basis for that material's environmental footprint. Give your own best-guess PER-KILOGRAM figures: ecoCost in euros/kg, co2e in kgCO2e/kg, water in L/kg, energyIn in kWh/kg. These get shown to the user clearly labeled as an unverified AI estimate, not as reference data, so a reasonable ballpark is genuinely useful -- but leave it null if you don't actually have a grounded basis for the numbers (never invent figures with no basis). Always null when "material" is non-null.
+- "estimate": whenever "material" is null (nothing in the list above fits), DEFAULT TO PROVIDING this rather than leaving it null too -- you almost always know enough in general terms (e.g. carbon-based electrode materials, common metals/plastics/ceramics, typical composite panels) to give a genuinely useful rough figure, and these are always shown to the user clearly labeled as an unverified AI estimate, not as certified reference data, so an approximate ballpark is exactly what's wanted here, not a precise number. Give your own best-guess PER-KILOGRAM figures: ecoCost in euros/kg, co2e in kgCO2e/kg, water in L/kg, energyIn in kWh/kg -- fill in every one of the 4 fields with your best number, never omit one partway through. Only leave the whole "estimate" null when the part is so vague (e.g. "miscellaneous hardware" with zero further detail) that you'd genuinely be inventing numbers with no basis at all. Always null when "material" is non-null.
 - Create one entry in "parts" per distinct physical component described. A single simple product is one entry, and cap it at 10 entries even if more are described.
 - Only give a material number when you're genuinely confident which one specific entry fits -- a wrong number is worse than null. When unsure, use null for "material" and fall back to "estimate" instead if you can.
 ${TAVILY_API_KEY ? '- If the text names a specific real product but leaves out a detail you need (its typical weight, what a component is actually made of, etc.), use the search_web tool to look it up rather than immediately defaulting to null -- but only search when you have a genuinely specific, answerable question; don\'t search speculatively for every part, and don\'t search more than necessary to fill the gaps that actually matter for this product.' : ''}

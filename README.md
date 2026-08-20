@@ -120,17 +120,21 @@ the numbers.
 
 When a part's material doesn't match anything in `data.js` at all (the
 reference catalog is necessarily finite — it can't cover every real-world
-material), the AI can fall back to its own best-guess eco-cost/carbon/water/
-energy figures instead of just giving up. These are added as a custom line
-item named `"<part> (AI-estimated — not in reference data, verify before
-trusting)"`, so they're clearly distinguished from the vetted catalog
-figures everywhere they show up (breakdowns, exports, everything reads the
-name as-is). The model is only asked for an estimate when it has no
-catalog match and is told explicitly to leave it blank rather than invent
-one with no grounding; the server additionally rejects any estimate field
-that isn't a finite, non-negative, plausibly-scaled number before it ever
-reaches the client. If neither a catalog match nor a usable estimate comes
-back, that part is still skipped with an explanation, same as before.
+material), the AI is asked to default to giving its own best-guess
+eco-cost/carbon/water/energy figures instead of just giving up, since these
+are always clearly labeled and reviewable rather than passed off as
+reference data. These are added as a custom line item named `"<part>
+(AI-estimated — not in reference data, verify before trusting)"`, so
+they're clearly distinguished from the vetted catalog figures everywhere
+they show up (breakdowns, exports, everything reads the name as-is). The
+server sanitizes each of the 4 estimate numbers (eco-cost, carbon, water,
+energy) independently — coercing anything non-finite, negative, or
+implausibly large to zero rather than discarding the whole estimate over
+one malformed field, since a model asked for 4 numbers per part won't
+always format every single one cleanly, and 3 good numbers are still more
+useful than none. If neither a catalog match nor any usable estimate comes
+back at all, that part is still skipped with an explanation, same as
+before.
 
 Uses NVIDIA's OpenAI-compatible API (`https://build.nvidia.com`) — text
 documents go to a text model; images go to a separate vision-capable model,
