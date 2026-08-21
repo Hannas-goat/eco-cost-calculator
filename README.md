@@ -136,69 +136,69 @@ useful than none. If neither a catalog match nor any usable estimate comes
 back at all, that part is still skipped with an explanation, same as
 before.
 
-Uses [Google's Gemini API](https://ai.google.dev). PDF text comes via
-`pdf-parse`, `.docx` via `mammoth`, `.xls`/`.xlsx` via `xlsx` (converted to
-CSV text) — all parsed **server-side**, capped at 15 MB per file. Images go
-straight to Gemini as inline image data — Gemini's Flash models are
-natively multimodal, so unlike a lot of other providers there's no separate
-vision-only model to configure.
+Uses [Groq's](https://console.groq.com) OpenAI-compatible API — PDF text
+comes via `pdf-parse`, `.docx` via `mammoth`, `.xls`/`.xlsx` via `xlsx`
+(converted to CSV text) — all parsed **server-side**, capped at 15 MB per
+file. Images go to a separate vision-capable model, since Groq (unlike some
+other providers) doesn't have one flagship model that natively handles both
+text and images.
 
 This calls the AI from the **server**, never the browser — the API key is a
 secret credential and must never end up in any file shipped to the client.
 To enable it:
 
-1. Get a free API key from [Google AI Studio](https://ai.google.dev) (no
-   credit card required for the free tier).
-2. Set `GEMINI_API_KEY` as an environment variable on your Render service
+1. Get a free API key from [console.groq.com](https://console.groq.com) —
+   no credit card required for the free tier.
+2. Set `GROQ_API_KEY` as an environment variable on your Render service
    (Environment tab — same place as `JWT_SECRET`/`TURSO_*`).
-3. Optionally set `GEMINI_MODEL` (defaults to `gemini-3.6-flash`),
-   `GEMINI_BASE_URL`, or `GEMINI_ENABLE_SEARCH=false` to turn off web search
-   (see below) without removing the key entirely.
+3. Optionally set `GROQ_MODEL` (defaults to `llama-3.3-70b-versatile`),
+   `GROQ_VISION_MODEL` (defaults to `llama-3.2-90b-vision-preview` — the
+   most likely to need changing, since "preview" models get retired or
+   renamed more often than stable ones), or `GROQ_BASE_URL`.
 
-Until `GEMINI_API_KEY` is set, the feature returns a clear "not configured"
+Until `GROQ_API_KEY` is set, the feature returns a clear "not configured"
 message and everything else keeps working exactly as before — same pattern
 as the optional Supabase/Turso setup elsewhere in this README. Rate-limited
 server-side (10 requests / 10 minutes per IP) since it hits a paid-beyond-
 free-tier API.
 
-**Structured output, not prompt-based hoping:** extraction uses Gemini's
-native `responseSchema` mode, which constrains generation to a fixed JSON
-shape at the API level rather than just asking the model nicely to follow a
-format described in the prompt. An earlier version of this feature (on a
-different provider) went through several rounds of prompt tightening —
-numbered list indices instead of name strings, worked examples for
-ambiguous cases — fighting the model returning subtly-off-schema output
-despite explicit instructions (e.g. inventing a plausible but non-existent
-material name, or once, on a smaller/faster model that was tried and
-reverted, wrapping the entire response in a hallucinated fake tool-call
-shape with no real data in it at all). A schema constraint closes off that
-whole failure class structurally instead of trying to out-word it.
+This project has used three different AI providers for this feature so
+far, each swapped in for a concrete reason rather than just trying a
+different vendor: NVIDIA's hosted Llama models (the original setup),
+Google Gemini (for its native `responseSchema` structured-output mode,
+which constrains generation to a fixed JSON shape at the API level instead
+of just asking nicely — closes off a whole class of "model didn't follow
+the format" bugs that no amount of prompt tightening fully solved on the
+first setup), and now Groq (because Gemini's free tier required a billing
+account on file for this account/region, which wasn't usable without
+adding payment info). Groq doesn't offer Gemini's structural schema
+guarantee — its JSON mode (`response_format: {type: "json_object"}`)
+guarantees only that the response is *syntactically* valid JSON, not that
+it matches the exact requested shape — so this version leans more on the
+same numbered-index approach used throughout (`"material":39` rather than
+`"material":"Graphite (battery anode)"` — a wrong number is a much
+narrower failure mode than a wrong string, and any out-of-range or
+non-numeric response just resolves to "no match" instead of a
+fabricated-looking name) plus `extractPartsObject`, a brace-scanning
+fallback parser that recovers a `{"parts":[...]}` object even if the model
+wraps valid JSON in extra commentary despite being told not to.
 
-**Web search:** Gemini has Google Search grounding built into the API — no
-separate search-provider key needed. When enabled (the default;
-`GEMINI_ENABLE_SEARCH=false` to disable), extraction runs as two calls: an
-optional research pass with search grounding enabled to look up a detail
-your text/file doesn't state (a real product's typical weight, what a
-component is actually made of, etc.), then the structured extraction call
-with whatever it found folded in as extra context. These have to be two
-separate calls — Gemini doesn't support combining search grounding with
-`responseSchema` in the same request — but a failed or unhelpful research
-pass never sinks the whole extraction; it just proceeds without whatever
-that lookup would have filled in. The server never waits more than 60
-seconds across both calls combined (the browser has its own 75-second
-backstop in case the server itself stalls).
+The 70B-class default model is a deliberate choice, not an oversight: a
+smaller/faster model was tried once already in this project (on the
+NVIDIA setup, purely chasing lower latency) and it wasn't reliable about
+following the requested JSON shape at all, once wrapping the entire
+response in a hallucinated fake tool-call structure with no real data in
+it. Groq's actual speed advantage comes from its inference hardware, not
+from using a smaller model, so there's no need to trade reliability for
+speed here the way that earlier attempt did.
 
-The `extractPartsObject` brace-scanning JSON parser from an earlier version
-of this feature is kept as a defensive fallback in case `JSON.parse` ever
-fails on what's supposed to be guaranteed-clean structured output, but
-shouldn't normally be reachable.
-
-The model is asked to return a **list number**, not a name, for each
-material/process/end-of-life match (e.g. `39` rather than `"Graphite
-(battery anode)"`), which the server then resolves back to the real name —
-a wrong number is a much narrower failure mode than a wrong string, and any
-out-of-range or non-numeric response just resolves to "no match" rather
-than a fabricated-looking name.
+This version doesn't include AI web search (an earlier iteration, on
+Gemini, used its built-in Google Search grounding; before that, a
+hand-rolled Tavily tool-calling loop on the NVIDIA setup) — Groq doesn't
+have a built-in equivalent, and re-adding a separate search-provider
+integration on top of a provider swap already in progress was judged not
+worth the added complexity/risk for now. Could be added back as a
+follow-up if it's actually wanted.
 
 ## Accounts
 

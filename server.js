@@ -17,30 +17,29 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const COOKIE_NAME = 'ecocost_session';
 const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-// AI part extraction (optional — Google Gemini API, https://ai.google.dev). Switched here
-// from NVIDIA's OpenAI-compatible API because Gemini supports native structured JSON output
-// (responseSchema below): the API itself constrains generation to the given shape, rather
-// than the model just being asked nicely to follow a shape described in the prompt. The
-// previous setup went through several rounds of prompt tightening (numbered indices instead
-// of name strings, worked examples, etc.) to fight exactly this class of bug -- the model
-// sometimes wouldn't follow the requested format at all, and no amount of prompt wording
-// fully closed that off. A native schema constraint closes it structurally instead.
-// GEMINI_API_KEY is a secret and must only ever live here as a server env var, never in any
-// file served to the browser.
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_BASE_URL = process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com/v1beta';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-if (!GEMINI_API_KEY) {
-  console.warn('GEMINI_API_KEY not set — AI part extraction is disabled (everything else still works).');
+// AI part extraction (optional — Groq's OpenAI-compatible API, https://console.groq.com).
+// Switched here from Google Gemini because Gemini's free tier turned out to require a
+// billing account on file for this account/region -- not a code problem, just not usable
+// without adding payment info. Groq's free tier doesn't require that. GROQ_API_KEY is a
+// secret and must only ever live here as a server env var, never in any file served to the
+// browser.
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const GROQ_BASE_URL = process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1';
+// Defaults to a large (70B-class) model, not a smaller/faster one -- a smaller model was
+// tried once already (in this project's NVIDIA-based setup) purely for speed, and it wasn't
+// reliable about following the requested JSON shape, sometimes wrapping the whole response
+// in a hallucinated fake tool-call shape instead of doing the extraction at all. Groq's
+// actual speed advantage comes from its inference hardware, not from using a smaller model,
+// so this keeps the larger/more reliable model while still being fast.
+const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+// Groq doesn't have one flagship model that reliably handles both text and images the way
+// Gemini's Flash models do, so images go to a separate vision-capable model -- most likely
+// to need adjusting if Groq's catalog changes, since "preview" models get retired/renamed
+// more often than stable ones.
+const GROQ_VISION_MODEL = process.env.GROQ_VISION_MODEL || 'llama-3.2-90b-vision-preview';
+if (!GROQ_API_KEY) {
+  console.warn('GROQ_API_KEY not set — AI part extraction is disabled (everything else still works).');
 }
-// Gemini's Flash models are natively multimodal (the same model handles text and images),
-// so unlike the old NVIDIA setup this doesn't need a separate vision-model override.
-
-// Google Search grounding (built into the Gemini API, not a separate service/key like the
-// old Tavily integration) -- lets the model look up a detail the given text/file doesn't
-// state before answering. On by default; set GEMINI_ENABLE_SEARCH=false to turn it off if
-// it's not needed or not available on your plan.
-const GEMINI_ENABLE_SEARCH = process.env.GEMINI_ENABLE_SEARCH !== 'false';
 
 if (!JWT_SECRET) {
   console.error(
@@ -282,13 +281,19 @@ function resolvePartIndices(parts) {
   });
 }
 
-// The JSON shape itself is now enforced structurally by Gemini's responseSchema (below,
-// passed alongside this as generationConfig.responseSchema) rather than by prompt wording --
-// so unlike the old NVIDIA prompt, this doesn't need to spell out or beg for the output
-// format. It only needs to carry the business rules a schema can't express: which numbered
-// list entry means what, when to prefer null over a guess, when to fall back to "estimate".
+// Groq's JSON mode (response_format below) only guarantees the response is syntactically
+// valid JSON -- unlike Gemini's responseSchema, it doesn't constrain which fields or types
+// appear, so unlike that version, this prompt still has to spell out the exact shape rather
+// than relying on the API to enforce it. Combined with the numbered-index approach (a model
+// that isn't confident which list entry fits can output null; it's much harder to
+// almost-get-right a number than to invent a plausible-sounding string) and the defensive
+// extractPartsObject fallback below, this is the next-best reliability layer available
+// without Gemini's structural guarantee.
 function buildExtractionPrompt() {
   return `You extract structured part data from a free-text product description for a Life Cycle Assessment calculator.
+
+Output ONLY the JSON object below and absolutely nothing else: no markdown code fences, no "Here is the JSON:", no reasoning, no explanation, no follow-up questions, before or after it. Your entire response must be parseable as JSON on its own. Keep it short -- do not add extra fields, comments, or repeated/padded text.
+{"parts":[{"name":string,"material":number|null,"weight":number|null,"process":number|null,"endOfLife":number|null,"estimate":{"ecoCost":number,"co2e":number,"water":number,"energyIn":number}|null}]}
 
 Rules:
 - "material" is the NUMBER of the single best-matching entry in this numbered list, or null if nothing clearly matches. Never output a material's name as text -- only its number, or null:
@@ -301,50 +306,14 @@ ${numberedList(EOL_NAMES)}
 - "estimate": whenever "material" is null (nothing in the list above fits), DEFAULT TO PROVIDING this rather than leaving it null too -- you almost always know enough in general terms (e.g. carbon-based electrode materials, common metals/plastics/ceramics, typical composite panels) to give a genuinely useful rough figure, and these are always shown to the user clearly labeled as an unverified AI estimate, not as certified reference data, so an approximate ballpark is exactly what's wanted here, not a precise number. Give your own best-guess PER-KILOGRAM figures: ecoCost in euros/kg, co2e in kgCO2e/kg, water in L/kg, energyIn in kWh/kg -- fill in every one of the 4 fields with your best number, never omit one partway through. Only leave the whole "estimate" null when the part is so vague (e.g. "miscellaneous hardware" with zero further detail) that you'd genuinely be inventing numbers with no basis at all. Always null when "material" is non-null.
 - Create one entry in "parts" per distinct physical component described. A single simple product is one entry, and cap it at 10 entries even if more are described.
 - Only give a material number when you're genuinely confident which one specific entry fits -- a wrong number is worse than null. When unsure, use null for "material" and fall back to "estimate" instead if you can.
-- If research findings are provided below (from a prior web search pass), use them to fill in "weight"/"material"/"estimate" where relevant -- otherwise ignore them.
-- If nothing usable is described, respond with an empty "parts" array -- never refuse, apologize, or ask a clarifying question instead.`;
+- If nothing usable is described, respond with {"parts":[]} -- never refuse, apologize, or ask a clarifying question instead.`;
 }
 
-// Gemini's structured-output schema (its own OpenAPI-subset dialect: uppercase type names,
-// "nullable" instead of a union type) -- this is what actually constrains the model's output
-// shape, not the prose above. Mirrors the same fields the rest of this file already expects
-// from resolvePartIndices' input.
-const PARTS_RESPONSE_SCHEMA = {
-  type: 'OBJECT',
-  properties: {
-    parts: {
-      type: 'ARRAY',
-      items: {
-        type: 'OBJECT',
-        properties: {
-          name: { type: 'STRING' },
-          material: { type: 'INTEGER', nullable: true },
-          weight: { type: 'NUMBER', nullable: true },
-          process: { type: 'INTEGER', nullable: true },
-          endOfLife: { type: 'INTEGER', nullable: true },
-          estimate: {
-            type: 'OBJECT',
-            nullable: true,
-            properties: {
-              ecoCost: { type: 'NUMBER' },
-              co2e: { type: 'NUMBER' },
-              water: { type: 'NUMBER' },
-              energyIn: { type: 'NUMBER' },
-            },
-          },
-        },
-        required: ['name'],
-      },
-    },
-  },
-  required: ['parts'],
-};
-
-// Defensive fallback JSON extractor, kept from the old NVIDIA-based setup (where the model
-// had no structural guarantee about its output shape and needed this to recover a
-// {"parts":[...]} object out of whatever chatty text it wrapped it in). Gemini's
-// responseSchema mode should make this unreachable in normal operation, but it's cheap
-// insurance against JSON.parse ever failing on what's supposed to be guaranteed-clean JSON.
+// Fallback JSON extractor for when the model's JSON-mode response isn't directly
+// JSON.parse-able as-is (Groq's JSON mode guarantees syntactically valid JSON, not that it's
+// the ONLY thing in the response -- a model can still wrap it in chatty text despite being
+// told not to). Scans for a recoverable {"parts":[...]} object rather than trusting the
+// whole reply is clean JSON.
 //
 // Two earlier versions of this both broke on rambling responses in different ways: a
 // greedy "first { ... last }" regex spans across ANY brace-like text before/after the
@@ -387,135 +356,84 @@ function extractPartsObject(text) {
   return null;
 }
 
-// Low-level call to Gemini's generateContent endpoint. Throws on any transport/HTTP error
-// (including AbortError from the shared timeout below) so callers can decide how to handle
-// that per phase -- e.g. the research phase treats any failure as "no research available"
-// rather than failing the whole request over an optional lookup.
-async function geminiGenerateContent(requestBody, signal) {
-  const res = await fetch(`${GEMINI_BASE_URL}/models/${GEMINI_MODEL}:generateContent`, {
-    method: 'POST',
-    headers: { 'x-goog-api-key': GEMINI_API_KEY, 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
-    signal,
-  });
-  const data = await res.json().catch(() => null);
-  if (!res.ok) {
-    throw new Error(data?.error?.message || `AI service error (HTTP ${res.status}).`);
-  }
-  return data;
-}
+const GROQ_TIMEOUT_MS = 45000; // hard cap -- never hang indefinitely
 
-function extractGeminiText(data) {
-  const parts = data?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts)) return '';
-  return parts.map((p) => p.text || '').join('');
-}
-
-// Optional pre-pass: lets Gemini use built-in Google Search grounding to look up a detail
-// the given text/file doesn't state (a real product's typical weight, what a component is
-// actually made of, etc.) before the structured extraction call below. This has to be a
-// SEPARATE call rather than folded into the main one: Gemini doesn't support combining
-// "tools" (grounding) with responseSchema/responseMimeType in a single request, so search
-// and guaranteed-structured-output can't both apply to the same call. Returns a short text
-// summary, or null if search is off, found nothing useful, or itself failed -- a failed or
-// unhelpful research pass should never sink the whole extraction, since the main call still
-// works fine without it (just without whatever the search would have filled in).
-async function geminiResearch(userParts, signal) {
-  if (!GEMINI_ENABLE_SEARCH) return null;
-  try {
-    const data = await geminiGenerateContent({
-      contents: [{ role: 'user', parts: userParts }],
-      systemInstruction: {
-        parts: [{ text: 'Research any product details (typical weight, what a component is actually made of, etc.) that would help fill in a Life Cycle Assessment part list for the item(s) described below, using web search where genuinely useful. Only look up something that is actually missing from the text AND realistically answerable -- do not search speculatively for things already stated, or for details nobody could look up. Reply with a short plain-text summary of anything useful you found. If nothing further is needed, reply with exactly: Nothing further needed.' }],
-      },
-      tools: [{ googleSearch: {} }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 512 },
-    }, signal);
-    const text = extractGeminiText(data).trim();
-    return text && text !== 'Nothing further needed.' ? text : null;
-  } catch (e) {
-    return null;
-  }
-}
-
-// The main extraction call -- responseSchema (PARTS_RESPONSE_SCHEMA) makes this Gemini's
-// structured-output mode, which constrains generation to the given shape rather than just
-// asking nicely for it, so (unlike the old prompt-only approach) a malformed/off-schema
-// response shouldn't be possible in the first place. extractPartsObject is still used as a
-// defensive fallback in case JSON.parse ever fails on what should be guaranteed-clean JSON.
-async function geminiExtractStructured(userParts, researchNote, signal) {
-  const contents = [{ role: 'user', parts: userParts }];
-  if (researchNote) {
-    contents.push({ role: 'user', parts: [{ text: `Research findings from a prior web search pass, use where relevant:\n${researchNote}` }] });
-  }
-  const data = await geminiGenerateContent({
-    contents,
-    systemInstruction: { parts: [{ text: buildExtractionPrompt() }] },
-    generationConfig: {
-      temperature: 0.1,
-      maxOutputTokens: 1024,
-      responseMimeType: 'application/json',
-      responseSchema: PARTS_RESPONSE_SCHEMA,
-    },
-  }, signal);
-
-  const finishReason = data?.candidates?.[0]?.finishReason;
-  if (finishReason === 'SAFETY' || finishReason === 'RECITATION') {
-    throw new Error(`The AI declined to process this (reason: ${finishReason}). Try rephrasing the description.`);
-  }
-
-  const text = extractGeminiText(data);
-  if (!text) throw new Error('AI response was missing the expected content.');
-
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch (e) {
-    parsed = extractPartsObject(text);
-  }
-  if (!parsed || !Array.isArray(parsed.parts)) {
-    throw new Error(`AI response didn't contain a usable parts list. Response started with: ${text.slice(0, 200)}`);
-  }
-  return parsed.parts;
-}
-
-const GEMINI_TIMEOUT_MS = 60000; // shared budget for the optional research pass + the structured extraction call
-
-// Shared by both the text and file endpoints. userParts is Gemini's content format: an array
-// of { text } and/or { inlineData: { mimeType, data } } objects (images included inline).
-// Returns { status, body } -- status is the HTTP status the route should respond with.
-async function callGeminiForParts(userParts) {
+// Shared by both the text and file endpoints: calls Groq's OpenAI-compatible chat/completions
+// with a given model + messages, using JSON mode (response_format below) for a baseline
+// reliability guarantee -- the response is guaranteed syntactically-valid JSON, though not
+// guaranteed to match the exact shape asked for in the prompt (that part still relies on the
+// prompt itself, and on the numbered-index approach making it hard to almost-get-right).
+// extractPartsObject is a defensive fallback for the rare case content isn't parseable
+// on its own despite JSON mode.
+async function callGroqForParts(messages, model) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  const timeoutId = setTimeout(() => controller.abort(), GROQ_TIMEOUT_MS);
+  let aiRes;
   try {
-    const researchNote = await geminiResearch(userParts, controller.signal);
-
-    let parts;
-    try {
-      parts = await geminiExtractStructured(userParts, researchNote, controller.signal);
-    } catch (e) {
-      if (e.name === 'AbortError') {
-        return { status: 504, body: { error: `The AI service (including any web search it ran) took longer than ${GEMINI_TIMEOUT_MS / 1000} seconds to respond, so the request was cancelled. Please try again -- if it keeps happening, try a shorter or more specific description.` } };
-      }
-      return { status: 502, body: { error: e.message } };
+    aiRes = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.1,
+        max_tokens: 1024,
+        response_format: { type: 'json_object' },
+      }),
+      signal: controller.signal,
+    });
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      return { status: 504, body: { error: `The AI service took longer than ${GROQ_TIMEOUT_MS / 1000} seconds to respond, so the request was cancelled. Please try again -- if it keeps happening, the model may be overloaded; try a shorter description or a different GROQ_MODEL.` } };
     }
-
-    // cap so a runaway response can't flood the page
-    return { status: 200, body: { parts: resolvePartIndices(parts.slice(0, 30)) } };
+    return { status: 502, body: { error: 'Could not reach the AI service: ' + e.message } };
   } finally {
     clearTimeout(timeoutId);
   }
+
+  if (!aiRes.ok) {
+    const errText = await aiRes.text().catch(() => '');
+    return { status: 502, body: { error: `AI service error (${aiRes.status}): ${errText.slice(0, 200)}` } };
+  }
+
+  const data = await aiRes.json().catch(() => null);
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content !== 'string') {
+    return { status: 502, body: { error: 'AI response was missing the expected content.' } };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch (e) {
+    parsed = extractPartsObject(content);
+  }
+  if (!parsed || !Array.isArray(parsed.parts)) {
+    return {
+      status: 502,
+      body: { error: `AI response didn't contain a usable {"parts":[...]} object (it may have rambled, been cut off, or refused). Response started with: ${content.slice(0, 200)}` },
+    };
+  }
+
+  // cap so a runaway response can't flood the page
+  return { status: 200, body: { parts: resolvePartIndices(parsed.parts.slice(0, 30)) } };
 }
 
 app.post('/api/ai-extract-parts', aiLimiter, async (req, res) => {
-  if (!GEMINI_API_KEY) {
-    return res.status(503).json({ error: 'AI extraction is not configured on this server yet (GEMINI_API_KEY not set).' });
+  if (!GROQ_API_KEY) {
+    return res.status(503).json({ error: 'AI extraction is not configured on this server yet (GROQ_API_KEY not set).' });
   }
   const description = typeof req.body?.description === 'string' ? req.body.description.trim() : '';
   if (!description) return res.status(400).json({ error: 'Describe the product first.' });
   if (description.length > 6000) return res.status(400).json({ error: 'Description is too long (max 6000 characters).' });
 
-  const { status, body } = await callGeminiForParts([{ text: description }]);
+  const { status, body } = await callGroqForParts(
+    [
+      { role: 'system', content: buildExtractionPrompt() },
+      { role: 'user', content: description },
+    ],
+    GROQ_MODEL
+  );
   res.status(status).json(body);
 });
 
@@ -553,22 +471,30 @@ function spreadsheetToText(buffer) {
 const IMAGE_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
 
 app.post('/api/ai-extract-parts-from-file', aiLimiter, upload.single('file'), async (req, res) => {
-  if (!GEMINI_API_KEY) {
-    return res.status(503).json({ error: 'AI extraction is not configured on this server yet (GEMINI_API_KEY not set).' });
+  if (!GROQ_API_KEY) {
+    return res.status(503).json({ error: 'AI extraction is not configured on this server yet (GROQ_API_KEY not set).' });
   }
   const file = req.file;
   if (!file) return res.status(400).json({ error: 'No file was uploaded.' });
 
   const ext = path.extname(file.originalname || '').toLowerCase();
 
-  // Images go straight to Gemini as inline image data -- no separate vision model needed,
-  // unlike the old NVIDIA setup, since Gemini's Flash models are natively multimodal.
+  // Images go to a separate vision-capable model as an image + instructions, not extracted text.
   if (IMAGE_MIME_TYPES.has(file.mimetype)) {
     const base64 = file.buffer.toString('base64');
-    const { status, body } = await callGeminiForParts([
-      { text: 'Extract the parts from this image (a product photo, spec sheet, or handwritten notes).' },
-      { inlineData: { mimeType: file.mimetype, data: base64 } },
-    ]);
+    const { status, body } = await callGroqForParts(
+      [
+        { role: 'system', content: buildExtractionPrompt() },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Extract the parts from this image (a product photo, spec sheet, or handwritten notes).' },
+            { type: 'image_url', image_url: { url: `data:${file.mimetype};base64,${base64}` } },
+          ],
+        },
+      ],
+      GROQ_VISION_MODEL
+    );
     return res.status(status).json(body);
   }
 
@@ -588,7 +514,13 @@ app.post('/api/ai-extract-parts-from-file', aiLimiter, upload.single('file'), as
   if (!text) return res.status(400).json({ error: 'No readable text was found in that file.' });
   if (text.length > 12000) text = text.slice(0, 12000);
 
-  const { status, body } = await callGeminiForParts([{ text }]);
+  const { status, body } = await callGroqForParts(
+    [
+      { role: 'system', content: buildExtractionPrompt() },
+      { role: 'user', content: text },
+    ],
+    GROQ_MODEL
+  );
   res.status(status).json(body);
 });
 
