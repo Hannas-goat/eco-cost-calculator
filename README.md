@@ -187,14 +187,25 @@ fabricated-looking name) plus `extractPartsObject`, a brace-scanning
 fallback parser that recovers a `{"parts":[...]}` object even if the model
 wraps valid JSON in extra commentary despite being told not to.
 
-The 70B-class default model is a deliberate choice, not an oversight: a
-smaller/faster model was tried once already in this project (on the
-NVIDIA setup, purely chasing lower latency) and it wasn't reliable about
-following the requested JSON shape at all, once wrapping the entire
-response in a hallucinated fake tool-call structure with no real data in
-it. Groq's actual speed advantage comes from its inference hardware, not
-from using a smaller model, so there's no need to trade reliability for
-speed here the way that earlier attempt did.
+A large (70B-class) default model was the original intent — a smaller
+model was already tried once on the NVIDIA setup purely to chase lower
+latency, and it wasn't reliable about following the requested JSON shape
+at all, once wrapping the entire response in a hallucinated fake
+tool-call structure with no real data in it. In practice the model that
+turned out to actually be available on Groq's free tier
+(`openai/gpt-oss-20b`) is smaller than that, and shows a milder version
+of the same problem: it will sometimes find and name the right parts but
+leave both "material" and "estimate" null for every single one of them —
+technically valid output, but useless to the user, since nothing about it
+can be added to the product. Rather than accept that silently, the server
+detects exactly that case (parts were found, but zero of them have any
+usable material or estimate) and retries once with a pointed correction
+telling the model what it left blank and why that's not acceptable
+outside a genuinely-no-information case. A normal or partial response
+never triggers this — only a response that's completely useless despite
+technically succeeding — so it doesn't add latency to the common case,
+though it does mean a worst-case request can now take close to twice the
+per-call timeout.
 
 This version doesn't include AI web search (an earlier iteration, on
 Gemini, used its built-in Google Search grounding; before that, a

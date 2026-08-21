@@ -304,6 +304,7 @@ ${numberedList(PROCESS_NAMES)}
 ${numberedList(EOL_NAMES)}
 - "weight" is in kilograms as a plain number (convert other units), or null if not stated.
 - "estimate": whenever "material" is null (nothing in the list above fits), DEFAULT TO PROVIDING this rather than leaving it null too -- you almost always know enough in general terms (e.g. carbon-based electrode materials, common metals/plastics/ceramics, typical composite panels) to give a genuinely useful rough figure, and these are always shown to the user clearly labeled as an unverified AI estimate, not as certified reference data, so an approximate ballpark is exactly what's wanted here, not a precise number. Give your own best-guess PER-KILOGRAM figures: ecoCost in euros/kg, co2e in kgCO2e/kg, water in L/kg, energyIn in kWh/kg -- fill in every one of the 4 fields with your best number, never omit one partway through. Only leave the whole "estimate" null when the part is so vague (e.g. "miscellaneous hardware" with zero further detail) that you'd genuinely be inventing numbers with no basis at all. Always null when "material" is non-null.
+  Example: description mentions "a gasket made of a proprietary rubber-silicone blend" (not in the list) -> {"name":"Gasket","material":null,"weight":0.02,"process":null,"endOfLife":null,"estimate":{"ecoCost":2.1,"co2e":3.8,"water":22,"energyIn":18}} -- general knowledge of rubber/silicone production impact is enough for a reasonable estimate even without knowing the exact proprietary blend. This is the expected default, not a rare exception.
 - Create one entry in "parts" per distinct physical component described. A single simple product is one entry, and cap it at 10 entries even if more are described.
 - Only give a material number when you're genuinely confident which one specific entry fits -- a wrong number is worse than null. When unsure, use null for "material" and fall back to "estimate" instead if you can.
 - If nothing usable is described, respond with {"parts":[]} -- never refuse, apologize, or ask a clarifying question instead.`;
@@ -356,16 +357,15 @@ function extractPartsObject(text) {
   return null;
 }
 
-const GROQ_TIMEOUT_MS = 45000; // hard cap -- never hang indefinitely
+const GROQ_TIMEOUT_MS = 45000; // hard cap per call -- never hang indefinitely
 
-// Shared by both the text and file endpoints: calls Groq's OpenAI-compatible chat/completions
-// with a given model + messages, using JSON mode (response_format below) for a baseline
-// reliability guarantee -- the response is guaranteed syntactically-valid JSON, though not
-// guaranteed to match the exact shape asked for in the prompt (that part still relies on the
-// prompt itself, and on the numbered-index approach making it hard to almost-get-right).
-// extractPartsObject is a defensive fallback for the rare case content isn't parseable
-// on its own despite JSON mode.
-async function callGroqForParts(messages, model) {
+// Single Groq call: chat/completions with a given model + messages, using JSON mode
+// (response_format below) for a baseline reliability guarantee -- the response is guaranteed
+// syntactically-valid JSON, though not guaranteed to match the exact shape asked for in the
+// prompt (that part still relies on the prompt itself, and on the numbered-index approach
+// making it hard to almost-get-right). extractPartsObject is a defensive fallback for the
+// rare case content isn't parseable on its own despite JSON mode.
+async function groqChatOnce(messages, model) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), GROQ_TIMEOUT_MS);
   let aiRes;
@@ -417,6 +417,38 @@ async function callGroqForParts(messages, model) {
 
   // cap so a runaway response can't flood the page
   return { status: 200, body: { parts: resolvePartIndices(parsed.parts.slice(0, 30)) } };
+}
+
+// True if at least one part has SOMETHING the user can act on -- a catalog match, or an
+// estimate with at least one non-zero field. False means the model found named parts but
+// gave literally nothing usable for any of them (every material AND every estimate null),
+// which is functionally useless to the user even though the call technically "succeeded".
+function hasAnyUsableData(parts) {
+  return parts.some((p) => p.material || (p.estimate && Object.values(p.estimate).some((v) => v > 0)));
+}
+
+const RETRY_NUDGE = 'Your previous response above left "material" AND "estimate" both null for every single part -- that\'s only reasonable if you genuinely have zero domain knowledge about any of them, which is unlikely. Try again: for every part where "material" stays null, you MUST fill in "estimate" with your best-guess figures based on general knowledge of similar materials/components, unless a part is so vague there is truly nothing to go on. A rough, clearly-labeled estimate is far more useful to the user than leaving everything blank.';
+
+// Shared by both the text and file endpoints. Retries once, with a pointed correction, if the
+// model's response found named parts but provided zero usable data (no catalog match, no
+// estimate) for any of them -- a response like that is functionally the same as not
+// extracting anything, and this was a real observed failure mode worth actively pushing back
+// on rather than silently accepting. Only retries in that specific case: a normal response
+// (even a partial one) or a hard error both return immediately, so this doesn't add latency
+// to the common case.
+async function callGroqForParts(messages, model) {
+  const result = await groqChatOnce(messages, model);
+  if (result.status !== 200 || !result.body.parts.length || hasAnyUsableData(result.body.parts)) {
+    return result;
+  }
+
+  const retryMessages = [
+    ...messages,
+    { role: 'assistant', content: JSON.stringify({ parts: result.body.parts }) },
+    { role: 'user', content: RETRY_NUDGE },
+  ];
+  const retryResult = await groqChatOnce(retryMessages, model);
+  return retryResult.status === 200 ? retryResult : result;
 }
 
 app.post('/api/ai-extract-parts', aiLimiter, async (req, res) => {

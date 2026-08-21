@@ -1052,18 +1052,20 @@ function stopAiTimer() {
 }
 
 // Backstop in case the server itself stalls (not just Groq, which the server already times
-// out on its own end after 45s) -- slightly longer than that, so the server's own clearer
-// timeout message wins in the normal case and this is just a last resort.
+// out on its own end after 45s per call -- and it can now make up to 2 calls if the first one
+// found named parts but gave no usable material/estimate for any of them, so worst case is
+// closer to 90s) -- slightly longer than that, so the server's own clearer timeout message
+// wins in the normal case and this is just a last resort.
 async function fetchAiWithTimeout(url, options) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 55000);
+  const timeoutId = setTimeout(() => controller.abort(), 100000);
   try {
     const res = await fetch(url, { ...options, signal: controller.signal });
     const data = await res.json().catch(() => ({}));
     return { ok: res.ok, data };
   } catch (e) {
     if (e.name === 'AbortError') {
-      return { ok: false, data: { error: 'This is taking far longer than expected (over 55s) and was cancelled on this end. The AI service may be overloaded — try again in a bit, or try a shorter description.' } };
+      return { ok: false, data: { error: 'This is taking far longer than expected (over 100s) and was cancelled on this end. The AI service may be overloaded — try again in a bit, or try a shorter description.' } };
     }
     return { ok: false, data: { error: 'Network error: ' + e.message } };
   } finally {
@@ -1079,14 +1081,14 @@ async function extractPartsWithAI() {
   let ok, data;
   if (aiAttachedFile) {
     const isImage = aiAttachedFile.type.startsWith('image/');
-    startAiTimer(isImage ? '10-20s for images' : '5-15s for documents');
+    startAiTimer(isImage ? '10-20s for images, up to 90s if it needs a second attempt' : '5-15s for documents, up to 90s if it needs a second attempt');
     const formData = new FormData();
     formData.append('file', aiAttachedFile);
     ({ ok, data } = await fetchAiWithTimeout('/api/ai-extract-parts-from-file', { method: 'POST', body: formData, credentials: 'same-origin' }));
   } else {
     const description = textarea.value.trim();
     if (!description) { status.textContent = 'Describe the product or attach a file first.'; return; }
-    startAiTimer('3-8s for text');
+    startAiTimer('3-8s for text, up to 90s if it needs a second attempt');
     ({ ok, data } = await fetchAiWithTimeout('/api/ai-extract-parts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
