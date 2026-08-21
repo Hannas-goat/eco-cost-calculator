@@ -155,10 +155,13 @@ To enable it:
    first default tried here, `llama-3.3-70b-versatile`, turned out to no
    longer exist on Groq; model catalogs shift fast enough that it's worth
    checking [console.groq.com](https://console.groq.com)'s Playground for
-   a current name if this one ever 404s too),
-   `GROQ_VISION_MODEL` (defaults to `llama-3.2-90b-vision-preview` — the
-   most likely to need changing, since "preview" models get retired or
-   renamed more often than stable ones), or `GROQ_BASE_URL`.
+   a current name if this one ever 404s too), `GROQ_VISION_MODEL`
+   (**REQUIRED if you want image uploads to work** — the default,
+   `llama-3.2-90b-vision-preview`, is confirmed dead per Groq's own
+   deprecation page, shut down 04/14/25; its replacement chain leads to
+   models not confirmed to accept image input at all, so rather than guess
+   again, check console.groq.com for a model explicitly listed as
+   supporting image/vision input and set this to it), or `GROQ_BASE_URL`.
 
 Until `GROQ_API_KEY` is set, the feature returns a clear "not configured"
 message and everything else keeps working exactly as before — same pattern

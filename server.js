@@ -33,9 +33,14 @@ const GROQ_BASE_URL = process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/
 // default is still accurate.
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-20b';
 // Groq doesn't have one flagship model that reliably handles both text and images the way
-// some other providers do, so images go to a separate vision-capable model. Unlike GROQ_MODEL
-// above, this one is still an unverified guess -- if image extraction 404s the same way text
-// extraction did, check console.groq.com for a current vision-capable model name.
+// some other providers do, so images go to a separate vision-capable model. This default is
+// CONFIRMED DEAD as of writing -- per Groq's own deprecation page, llama-3.2-90b-vision-preview
+// was shut down 04/14/25, and its replacement chain (llama-4-scout-17b-16e-instruct, itself
+// deprecated 07/17/26) leads to openai/gpt-oss-120b / qwen/qwen3.6-27b, neither of which is
+// confirmed to accept image input (Groq's deprecation notices don't distinguish "faster
+// replacement" from "still supports the same input types"). Left as-is rather than guessing a
+// 4th model name blindly -- check console.groq.com for a model explicitly listed as supporting
+// image/vision input before setting this.
 const GROQ_VISION_MODEL = process.env.GROQ_VISION_MODEL || 'llama-3.2-90b-vision-preview';
 if (!GROQ_API_KEY) {
   console.warn('GROQ_API_KEY not set — AI part extraction is disabled (everything else still works).');
