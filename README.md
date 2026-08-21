@@ -151,7 +151,11 @@ To enable it:
    no credit card required for the free tier.
 2. Set `GROQ_API_KEY` as an environment variable on your Render service
    (Environment tab — same place as `JWT_SECRET`/`TURSO_*`).
-3. Optionally set `GROQ_MODEL` (defaults to `llama-3.3-70b-versatile`),
+3. Optionally set `GROQ_MODEL` (defaults to `openai/gpt-oss-20b` — the
+   first default tried here, `llama-3.3-70b-versatile`, turned out to no
+   longer exist on Groq; model catalogs shift fast enough that it's worth
+   checking [console.groq.com](https://console.groq.com)'s Playground for
+   a current name if this one ever 404s too),
    `GROQ_VISION_MODEL` (defaults to `llama-3.2-90b-vision-preview` — the
    most likely to need changing, since "preview" models get retired or
    renamed more often than stable ones), or `GROQ_BASE_URL`.

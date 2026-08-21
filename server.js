@@ -25,17 +25,17 @@ const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 // browser.
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_BASE_URL = process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1';
-// Defaults to a large (70B-class) model, not a smaller/faster one -- a smaller model was
-// tried once already (in this project's NVIDIA-based setup) purely for speed, and it wasn't
-// reliable about following the requested JSON shape, sometimes wrapping the whole response
-// in a hallucinated fake tool-call shape instead of doing the extraction at all. Groq's
-// actual speed advantage comes from its inference hardware, not from using a smaller model,
-// so this keeps the larger/more reliable model while still being fast.
-const GROQ_MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+// llama-3.3-70b-versatile (this project's first guess, based on training-data knowledge of
+// Groq's catalog) turned out to no longer exist on Groq -- model catalogs change faster than
+// any hardcoded default can track. This one was confirmed live, straight from Groq's own
+// console with a real API key, not guessed: if it ever stops working, check
+// console.groq.com's Playground for a current model name rather than assuming this file's
+// default is still accurate.
+const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-20b';
 // Groq doesn't have one flagship model that reliably handles both text and images the way
-// Gemini's Flash models do, so images go to a separate vision-capable model -- most likely
-// to need adjusting if Groq's catalog changes, since "preview" models get retired/renamed
-// more often than stable ones.
+// some other providers do, so images go to a separate vision-capable model. Unlike GROQ_MODEL
+// above, this one is still an unverified guess -- if image extraction 404s the same way text
+// extraction did, check console.groq.com for a current vision-capable model name.
 const GROQ_VISION_MODEL = process.env.GROQ_VISION_MODEL || 'llama-3.2-90b-vision-preview';
 if (!GROQ_API_KEY) {
   console.warn('GROQ_API_KEY not set — AI part extraction is disabled (everything else still works).');
