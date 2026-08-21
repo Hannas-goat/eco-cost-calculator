@@ -302,7 +302,7 @@ ${numberedList(MATERIAL_NAMES)}
 ${numberedList(PROCESS_NAMES)}
 - "endOfLife" is the NUMBER of the matching entry in this numbered list, or null if not mentioned:
 ${numberedList(EOL_NAMES)}
-- "weight" is in kilograms as a plain number (convert other units), or null if not stated.
+- "weight" is in kilograms as a plain number (convert other units), or null if not stated. If the text gives an OVERALL weight for the whole product but doesn't break it down per component, don't just leave every component's weight null -- apportion the total across the parts using genuinely reasonable typical mass proportions for that kind of product (e.g. in a battery/capacitor, electrodes typically account for more mass than the separator). The apportioned figures should still sum to roughly the stated total. Only leave "weight" null when there's truly no total or per-part figure to work from at all.
 - "estimate": whenever "material" is null (nothing in the list above fits), DEFAULT TO PROVIDING this rather than leaving it null too -- you almost always know enough in general terms (e.g. carbon-based electrode materials, common metals/plastics/ceramics, typical composite panels) to give a genuinely useful rough figure, and these are always shown to the user clearly labeled as an unverified AI estimate, not as certified reference data, so an approximate ballpark is exactly what's wanted here, not a precise number. Give your own best-guess PER-KILOGRAM figures: ecoCost in euros/kg, co2e in kgCO2e/kg, water in L/kg, energyIn in kWh/kg -- fill in every one of the 4 fields with your best number, never omit one partway through. Only leave the whole "estimate" null when the part is so vague (e.g. "miscellaneous hardware" with zero further detail) that you'd genuinely be inventing numbers with no basis at all. Always null when "material" is non-null.
   Example: description mentions "a gasket made of a proprietary rubber-silicone blend" (not in the list) -> {"name":"Gasket","material":null,"weight":0.02,"process":null,"endOfLife":null,"estimate":{"ecoCost":2.1,"co2e":3.8,"water":22,"energyIn":18}} -- general knowledge of rubber/silicone production impact is enough for a reasonable estimate even without knowing the exact proprietary blend. This is the expected default, not a rare exception.
 - Create one entry in "parts" per distinct physical component described. A single simple product is one entry, and cap it at 10 entries even if more are described.
@@ -420,22 +420,29 @@ async function groqChatOnce(messages, model) {
 }
 
 // True if at least one part has SOMETHING the user can act on -- a catalog match, or an
-// estimate with at least one non-zero field. False means the model found named parts but
-// gave literally nothing usable for any of them (every material AND every estimate null),
-// which is functionally useless to the user even though the call technically "succeeded".
+// estimate with at least one non-zero field -- AND a usable weight, mirroring exactly what
+// the client requires before a part can actually be added (see hasWeight/applyAiPartSuggestions
+// in app.js): a material match with no weight is just as useless to the user as no material
+// at all, since neither can turn into a real line item. False means the model found named
+// parts but gave literally nothing usable for any of them, which is functionally the same as
+// not extracting anything even though the call technically "succeeded".
 function hasAnyUsableData(parts) {
-  return parts.some((p) => p.material || (p.estimate && Object.values(p.estimate).some((v) => v > 0)));
+  return parts.some((p) => {
+    const weight = Number(p.weight);
+    const hasWeight = Number.isFinite(weight) && weight > 0;
+    return hasWeight && (p.material || (p.estimate && Object.values(p.estimate).some((v) => v > 0)));
+  });
 }
 
-const RETRY_NUDGE = 'Your previous response above left "material" AND "estimate" both null for every single part -- that\'s only reasonable if you genuinely have zero domain knowledge about any of them, which is unlikely. Try again: for every part where "material" stays null, you MUST fill in "estimate" with your best-guess figures based on general knowledge of similar materials/components, unless a part is so vague there is truly nothing to go on. A rough, clearly-labeled estimate is far more useful to the user than leaving everything blank.';
+const RETRY_NUDGE = 'Your previous response above left every single part unusable -- either "material" and "estimate" were both null, or "weight" was null even where a material matched. That combination only makes sense if you genuinely have zero information to work with, which is unlikely here. Try again: for every part where "material" stays null, fill in "estimate" with your best-guess figures based on general knowledge of similar materials/components. For every part missing "weight", check whether the text gives an overall/total weight you can apportion across components using reasonable typical mass proportions, rather than leaving it null. Only leave a field null when there truly is nothing to base a value on.';
 
 // Shared by both the text and file endpoints. Retries once, with a pointed correction, if the
-// model's response found named parts but provided zero usable data (no catalog match, no
-// estimate) for any of them -- a response like that is functionally the same as not
-// extracting anything, and this was a real observed failure mode worth actively pushing back
-// on rather than silently accepting. Only retries in that specific case: a normal response
-// (even a partial one) or a hard error both return immediately, so this doesn't add latency
-// to the common case.
+// model's response found named parts but provided zero genuinely usable data for any of them
+// (no catalog match + estimate combo, or no weight to attach it to) -- a response like that
+// is functionally the same as not extracting anything, and this was a real observed failure
+// mode worth actively pushing back on rather than silently accepting. Only retries in that
+// specific case: a normal response (even a partial one) or a hard error both return
+// immediately, so this doesn't add latency to the common case.
 async function callGroqForParts(messages, model) {
   const result = await groqChatOnce(messages, model);
   if (result.status !== 200 || !result.body.parts.length || hasAnyUsableData(result.body.parts)) {

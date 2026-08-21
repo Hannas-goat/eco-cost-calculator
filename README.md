@@ -195,17 +195,22 @@ tool-call structure with no real data in it. In practice the model that
 turned out to actually be available on Groq's free tier
 (`openai/gpt-oss-20b`) is smaller than that, and shows a milder version
 of the same problem: it will sometimes find and name the right parts but
-leave both "material" and "estimate" null for every single one of them —
-technically valid output, but useless to the user, since nothing about it
-can be added to the product. Rather than accept that silently, the server
-detects exactly that case (parts were found, but zero of them have any
-usable material or estimate) and retries once with a pointed correction
-telling the model what it left blank and why that's not acceptable
-outside a genuinely-no-information case. A normal or partial response
-never triggers this — only a response that's completely useless despite
-technically succeeding — so it doesn't add latency to the common case,
-though it does mean a worst-case request can now take close to twice the
-per-call timeout.
+leave them practically unusable — either both "material" and "estimate"
+null, or a material matched with no "weight" to attach it to (a matched
+material with no weight can't become a real line item any more than an
+unmatched one can). Rather than accept that silently, the server checks
+for exactly that — every part missing *either* a usable
+material-or-estimate *or* a usable weight — and retries once with a
+pointed correction naming what was left blank. Part of that correction:
+if the text gave one overall weight for the whole product without
+breaking it down per component, the model should apportion that total
+across the parts by reasonable typical mass proportions rather than
+leaving every component's weight null (a common real-world pattern this
+project hadn't originally accounted for). A normal or partial response
+never triggers the retry — only a response that's completely useless
+despite technically succeeding — so it doesn't add latency to the common
+case, though it does mean a worst-case request can now take close to
+twice the per-call timeout.
 
 This version doesn't include AI web search (an earlier iteration, on
 Gemini, used its built-in Google Search grounding; before that, a
