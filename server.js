@@ -442,26 +442,55 @@ function hasAnyUsableData(parts) {
 
 const RETRY_NUDGE = 'Your previous response above left every single part unusable -- either "material" and "estimate" were both null, or "weight" was null even where a material matched. That combination only makes sense if you genuinely have zero information to work with, which is unlikely here. Try again: for every part where "material" stays null, fill in "estimate" with your best-guess figures based on general knowledge of similar materials/components. For every part missing "weight", check whether the text gives an overall/total weight you can apportion across components using reasonable typical mass proportions, rather than leaving it null. Only leave a field null when there truly is nothing to base a value on.';
 
+// Deliberately generic, deliberately modest per-kilogram figures -- not a claim about any
+// real material, just enough to make a part's total nonzero and reviewable rather than
+// invisible. Always shown to the user with an unmistakable "generic placeholder, please
+// correct" label (see genericFallback handling in app.js), never presented as an estimate of
+// anything in particular.
+const GENERIC_FALLBACK_ESTIMATE = { ecoCost: 1.0, co2e: 3.0, water: 30, energyIn: 20 };
+
+// Last-resort guarantee: a part with a real weight but still no catalog material AND no
+// usable AI estimate (even after the retry above) gets the generic placeholder attached
+// instead of being left to fall through to "add this yourself". This is a deliberate policy
+// choice, not a data-quality claim -- every part the AI actually found and could weigh
+// becomes a reviewable line item in the product, full stop; a weight-less part still can't
+// be invented a number for (weight is product-specific in a way generic material class
+// impact isn't), so that's the one case that still requires the user to fill in manually.
+function applyGenericFallback(parts) {
+  return parts.map((p) => {
+    const weight = Number(p.weight);
+    const hasWeight = Number.isFinite(weight) && weight > 0;
+    const hasEstimate = p.estimate && Object.values(p.estimate).some((v) => v > 0);
+    if (!hasWeight || p.material || hasEstimate) return p;
+    return { ...p, estimate: { ...GENERIC_FALLBACK_ESTIMATE }, genericFallback: true };
+  });
+}
+
 // Shared by both the text and file endpoints. Retries once, with a pointed correction, if the
 // model's response found named parts but provided zero genuinely usable data for any of them
 // (no catalog match + estimate combo, or no weight to attach it to) -- a response like that
 // is functionally the same as not extracting anything, and this was a real observed failure
 // mode worth actively pushing back on rather than silently accepting. Only retries in that
 // specific case: a normal response (even a partial one) or a hard error both return
-// immediately, so this doesn't add latency to the common case.
+// immediately, so this doesn't add latency to the common case. After the retry settles (or is
+// skipped), applyGenericFallback makes a final pass so nothing with a real weight is ever
+// left completely unusable.
 async function callGroqForParts(messages, model) {
   const result = await groqChatOnce(messages, model);
-  if (result.status !== 200 || !result.body.parts.length || hasAnyUsableData(result.body.parts)) {
-    return result;
+  if (result.status !== 200) return result;
+
+  let finalParts = result.body.parts;
+  if (finalParts.length && !hasAnyUsableData(finalParts)) {
+    const retryMessages = [
+      ...messages,
+      { role: 'assistant', content: JSON.stringify({ parts: finalParts }) },
+      { role: 'user', content: RETRY_NUDGE },
+    ];
+    const retryResult = await groqChatOnce(retryMessages, model);
+    if (retryResult.status === 200) finalParts = retryResult.body.parts;
   }
 
-  const retryMessages = [
-    ...messages,
-    { role: 'assistant', content: JSON.stringify({ parts: result.body.parts }) },
-    { role: 'user', content: RETRY_NUDGE },
-  ];
-  const retryResult = await groqChatOnce(retryMessages, model);
-  return retryResult.status === 200 ? retryResult : result;
+  return { status: 200, body: { parts: applyGenericFallback(finalParts) } };
 }
 
 app.post('/api/ai-extract-parts', aiLimiter, async (req, res) => {

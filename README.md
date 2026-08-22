@@ -131,9 +131,26 @@ energy) independently — coercing anything non-finite, negative, or
 implausibly large to zero rather than discarding the whole estimate over
 one malformed field, since a model asked for 4 numbers per part won't
 always format every single one cleanly, and 3 good numbers are still more
-useful than none. If neither a catalog match nor any usable estimate comes
-back at all, that part is still skipped with an explanation, same as
-before.
+useful than none.
+
+If a part still has no catalog match and no usable AI estimate after the
+retry described below, a deliberately generic, deliberately modest
+placeholder figure gets attached anyway rather than leaving the part
+unusable — this is a policy choice, not a data-quality claim: every part
+the AI found and could weigh becomes a real, reviewable line item in the
+product, full stop, rather than requiring a trip to "Custom line item" for
+anything the model wasn't confident about (which turned out to be common
+enough, especially for less mainstream materials like specific battery
+chemistries, that leaving it unhandled defeated the point of automatic
+extraction). This is named distinctly in the UI — `"<part> (AI couldn't
+identify this — GENERIC placeholder values, please correct)"` — clearly
+separate from a genuine AI estimate, since the trust level really is
+different: an AI estimate reflects some actual reasoning about the
+material, a generic placeholder reflects none at all. A part only still
+gets skipped (requiring manual entry) when its weight itself couldn't be
+determined — weight is product-specific in a way generic material-class
+impact figures aren't, so unlike the estimate case, there's no reasonable
+generic number to fall back to there.
 
 Uses [Groq's](https://console.groq.com) OpenAI-compatible API — PDF text
 comes via `pdf-parse`, `.docx` via `mammoth`, `.xls`/`.xlsx` via `xlsx`

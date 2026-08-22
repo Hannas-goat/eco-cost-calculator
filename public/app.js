@@ -986,6 +986,7 @@ function handleAiFileSelect(event) {
 function applyAiPartSuggestions(suggestions) {
   let added = 0;
   let estimated = 0;
+  let placeholder = 0;
   const skipped = [];
   for (const s of suggestions) {
     const name = String(s.name || 'Part').slice(0, 60);
@@ -1015,21 +1016,35 @@ function applyAiPartSuggestions(suggestions) {
     const hasEstimate = est && typeof est === 'object' &&
       [est.ecoCost, est.co2e, est.water, est.energyIn].some(v => Number(v) > 0);
     if (!material && hasEstimate && hasWeight) {
+      // genericFallback marks a server-side last-resort placeholder (the AI genuinely had
+      // nothing to go on, not even a rough guess) -- labeled distinctly from a real AI
+      // estimate so the difference in trust level is obvious at a glance, not just implied.
+      const name_ = s.genericFallback
+        ? `${name} (AI couldn't identify this — GENERIC placeholder values, please correct)`
+        : `${name} (AI-estimated — not in reference data, verify before trusting)`;
       product.customLines.push({
         id: nextLineId++,
-        name: `${name} (AI-estimated — not in reference data, verify before trusting)`,
+        name: name_,
         ecoCost: (Number(est.ecoCost) || 0) * weight,
         co2e: (Number(est.co2e) || 0) * weight,
         water: (Number(est.water) || 0) * weight,
         energyIn: (Number(est.energyIn) || 0) * weight,
       });
-      estimated++;
+      if (s.genericFallback) placeholder++; else estimated++;
       continue;
     }
 
-    skipped.push(`${name} (${!material ? `no reference material for "${materialName || 'none given'}"` : 'missing/invalid weight'})`);
+    // With the server-side generic-placeholder guarantee in place, a valid weight now always
+    // gets SOME usable estimate attached (real or generic) -- so in practice this is only
+    // reached when weight itself is missing. Checking weight first (rather than material, as
+    // this used to) keeps the message accurate if that guarantee ever doesn't hold for some
+    // other reason instead of always blaming material first regardless of the real cause.
+    const reason = !hasWeight
+      ? 'missing/invalid weight'
+      : `no reference material for "${materialName || 'none given'}" and no usable estimate`;
+    skipped.push(`${name} (${reason})`);
   }
-  return { added, estimated, skipped };
+  return { added, estimated, placeholder, skipped };
 }
 
 // Live elapsed-time counter while an AI request is in flight — there's no real
@@ -1101,12 +1116,16 @@ async function extractPartsWithAI() {
 
   if (!ok) { status.textContent = data.error || 'AI extraction failed.'; return; }
 
-  const { added, estimated, skipped } = applyAiPartSuggestions(Array.isArray(data.parts) ? data.parts : []);
-  const handled = added + estimated;
+  const { added, estimated, placeholder, skipped } = applyAiPartSuggestions(Array.isArray(data.parts) ? data.parts : []);
+  const handled = added + estimated + placeholder;
+  const parts = [];
+  if (added) parts.push(`${added} matched to the reference data`);
+  if (estimated) parts.push(`${estimated} with its own estimated numbers ("AI-estimated" in the custom lines)`);
+  if (placeholder) parts.push(`${placeholder} with generic placeholder numbers ("GENERIC placeholder" in the custom lines — it had nothing to go on, correct these)`);
   status.textContent = handled
-    ? `AI added ${added} part(s) from the reference data${estimated ? ` and ${estimated} with its own estimated numbers (marked "AI-estimated" in the custom lines — review before trusting)` : ''}.${skipped.length ? ` Skipped: ${skipped.join('; ')}.` : ''}`
+    ? `AI added ${handled} part(s): ${parts.join(', ')} — review before trusting.${skipped.length ? ` Skipped: ${skipped.join('; ')}.` : ''}`
     : skipped.length
-      ? `AI found ${skipped.length} part(s), but couldn't match or confidently estimate any of them: ${skipped.join('; ')}. Add these yourself via "Custom line item" below — it takes any material and impact numbers, not just what's in the dropdown.`
+      ? `AI found ${skipped.length} part(s), but couldn't get a usable weight for any of them: ${skipped.join('; ')}. Add these yourself via "Custom line item" below — it takes any material and impact numbers, not just what's in the dropdown.`
       : 'No usable parts found. Try describing the material and weight more explicitly.';
   if (handled) {
     textarea.value = '';
