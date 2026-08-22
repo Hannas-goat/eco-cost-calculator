@@ -189,6 +189,9 @@ To enable it:
    a current name if this one ever 404s too) or `GROQ_BASE_URL`.
    `GROQ_VISION_MODEL` also exists but has no default and isn't currently
    usable — see "Image upload isn't offered" below.
+4. Optionally, for web search: get a free key from
+   [tavily.com](https://tavily.com) and set it as `TAVILY_API_KEY`, same
+   place as above.
 
 Until `GROQ_API_KEY` is set, the feature returns a clear "not configured"
 message and everything else keeps working exactly as before — same pattern
@@ -242,13 +245,27 @@ despite technically succeeding — so it doesn't add latency to the common
 case, though it does mean a worst-case request can now take close to
 twice the per-call timeout.
 
-This version doesn't include AI web search (an earlier iteration, on
-Gemini, used its built-in Google Search grounding; before that, a
-hand-rolled Tavily tool-calling loop on the NVIDIA setup) — Groq doesn't
-have a built-in equivalent, and re-adding a separate search-provider
-integration on top of a provider swap already in progress was judged not
-worth the added complexity/risk for now. Could be added back as a
-follow-up if it's actually wanted.
+**Web search** is back (it was dropped for a while during the Gemini→Groq
+switch, then re-added once it became clear that weight — unlike material
+class impact figures — really did need it: a component's typical weight
+is a real, look-up-able fact for a specific real product, not something
+general domain knowledge alone can approximate the way "rubber roughly
+costs X per kg" can). Get a free key from [tavily.com](https://tavily.com)
+and set it as `TAVILY_API_KEY`. Groq has no built-in search-grounding tool
+the way Gemini did, so this is the same hand-rolled tool-calling loop
+originally built for the NVIDIA setup, just retargeted at Groq (which is
+also OpenAI-compatible, so the request/response shape carries over
+directly): the model can call a `search_web` tool mid-turn, the server
+runs the query through Tavily and feeds the results back, capped at 1
+search round per "turn" (2 turns total across the retry above, so at most
+4 HTTP round-trips for one extraction request). Without `TAVILY_API_KEY`,
+the model is never even told the tool exists (no `tools` sent in the
+request at all), so behavior is identical to not having this at all.
+
+Each "turn" (a call to `groqChatOnce`, including any search round inside
+it) is capped at 40 seconds; since the retry mechanism above can invoke
+it twice, worst-case total server time is around 80 seconds, and the
+browser's own backstop is set to 100 seconds accordingly.
 
 ## Accounts
 
