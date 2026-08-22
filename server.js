@@ -32,16 +32,17 @@ const GROQ_BASE_URL = process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/
 // console.groq.com's Playground for a current model name rather than assuming this file's
 // default is still accurate.
 const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-20b';
-// Groq doesn't have one flagship model that reliably handles both text and images the way
-// some other providers do, so images go to a separate vision-capable model. This default is
-// CONFIRMED DEAD as of writing -- per Groq's own deprecation page, llama-3.2-90b-vision-preview
-// was shut down 04/14/25, and its replacement chain (llama-4-scout-17b-16e-instruct, itself
-// deprecated 07/17/26) leads to openai/gpt-oss-120b / qwen/qwen3.6-27b, neither of which is
-// confirmed to accept image input (Groq's deprecation notices don't distinguish "faster
-// replacement" from "still supports the same input types"). Left as-is rather than guessing a
-// 4th model name blindly -- check console.groq.com for a model explicitly listed as supporting
-// image/vision input before setting this.
-const GROQ_VISION_MODEL = process.env.GROQ_VISION_MODEL || 'llama-3.2-90b-vision-preview';
+// Groq currently hosts NO vision-capable model at all -- confirmed by reading the full live
+// model catalog from the Groq console (Alibaba Cloud, Canopy Labs, Groq, Meta, OpenAI groups):
+// text-only reasoning models (gpt-oss-120b/20b, qwen3.6-27b), Whisper (speech-to-text),
+// Orpheus (text-to-speech), and Llama Prompt Guard (a safety classifier, not general chat).
+// No image-input model anywhere in it. So unlike GROQ_MODEL above, this intentionally has NO
+// default -- guessing one that turns out not to exist just reproduces the same decommissioned-
+// model error every time someone tries to upload an image. Leave GROQ_VISION_MODEL unset until
+// Groq actually hosts a vision-capable model (or a different provider is used for just this
+// path); the image-upload route below fails clearly and immediately when it's unset, rather
+// than attempting a request that's guaranteed to fail.
+const GROQ_VISION_MODEL = process.env.GROQ_VISION_MODEL || '';
 if (!GROQ_API_KEY) {
   console.warn('GROQ_API_KEY not set — AI part extraction is disabled (everything else still works).');
 }
@@ -525,6 +526,9 @@ app.post('/api/ai-extract-parts-from-file', aiLimiter, upload.single('file'), as
 
   // Images go to a separate vision-capable model as an image + instructions, not extracted text.
   if (IMAGE_MIME_TYPES.has(file.mimetype)) {
+    if (!GROQ_VISION_MODEL) {
+      return res.status(503).json({ error: 'Image-based extraction isn\'t currently supported (no vision-capable AI model is configured) -- try describing the product in text instead, or attach a PDF/Word/Excel document.' });
+    }
     const base64 = file.buffer.toString('base64');
     const { status, body } = await callGroqForParts(
       [

@@ -110,9 +110,8 @@ an explanation rather than silently dropped or guessed at.
 
 A third way to fill in parts, on Home: describe the product in plain
 language, or attach a file — `.txt`/`.md`/`.csv`/`.json` (read directly in
-the browser), a PDF, a Word (`.docx`) or Excel (`.xls`/`.xlsx`) document, or
-an image (a product photo, spec sheet, or handwritten notes) — and an AI
-call extracts structured parts from it. Everything is matched against the
+the browser), or a PDF, Word (`.docx`), or Excel (`.xls`/`.xlsx`) document
+— and an AI call extracts structured parts from it. Everything is matched against the
 real material/process/end-of-life names in `data.js`, same validation as the
 CSV upload, so a name the AI gets wrong never silently becomes a real part.
 Suggestions are added directly to the product; review them before trusting
@@ -139,9 +138,24 @@ before.
 Uses [Groq's](https://console.groq.com) OpenAI-compatible API — PDF text
 comes via `pdf-parse`, `.docx` via `mammoth`, `.xls`/`.xlsx` via `xlsx`
 (converted to CSV text) — all parsed **server-side**, capped at 15 MB per
-file. Images go to a separate vision-capable model, since Groq (unlike some
-other providers) doesn't have one flagship model that natively handles both
-text and images.
+file.
+
+Image upload isn't offered: Groq currently hosts no vision-capable
+(image-input) model at all — confirmed by reading its complete live model
+catalog (Alibaba Cloud, Canopy Labs, Groq, Meta, and OpenAI groups): all
+text-only reasoning models, Whisper (speech-to-text), Orpheus
+(text-to-speech), and Llama Prompt Guard (a safety classifier). Both of
+Groq's previous vision-capable lineups (the Llama 3.2 vision-preview
+series, then Llama 4 Scout/Maverick) have been deprecated and not
+replaced with a new multimodal model. `GROQ_VISION_MODEL` exists as an
+environment variable for exactly this reason: it intentionally has no
+default, and the image-upload code path (still present, unreachable from
+the UI's file picker since it no longer offers image types) returns a
+clear "not currently supported" error rather than attempting a request
+that's guaranteed to fail. If Groq ever hosts a vision-capable model, or
+you want to point just this path at a different provider, set
+`GROQ_VISION_MODEL` and re-add image MIME types to the file input's
+`accept` attribute in `index.html`.
 
 This calls the AI from the **server**, never the browser — the API key is a
 secret credential and must never end up in any file shipped to the client.
@@ -155,13 +169,9 @@ To enable it:
    first default tried here, `llama-3.3-70b-versatile`, turned out to no
    longer exist on Groq; model catalogs shift fast enough that it's worth
    checking [console.groq.com](https://console.groq.com)'s Playground for
-   a current name if this one ever 404s too), `GROQ_VISION_MODEL`
-   (**REQUIRED if you want image uploads to work** — the default,
-   `llama-3.2-90b-vision-preview`, is confirmed dead per Groq's own
-   deprecation page, shut down 04/14/25; its replacement chain leads to
-   models not confirmed to accept image input at all, so rather than guess
-   again, check console.groq.com for a model explicitly listed as
-   supporting image/vision input and set this to it), or `GROQ_BASE_URL`.
+   a current name if this one ever 404s too) or `GROQ_BASE_URL`.
+   `GROQ_VISION_MODEL` also exists but has no default and isn't currently
+   usable — see "Image upload isn't offered" below.
 
 Until `GROQ_API_KEY` is set, the feature returns a clear "not configured"
 message and everything else keeps working exactly as before — same pattern

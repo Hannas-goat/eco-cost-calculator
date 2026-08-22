@@ -955,8 +955,10 @@ function uploadPartsCsv(event) {
 // Matching against MATERIALS/PROCESSES/END_OF_LIFE happens here, same as CSV upload,
 // so a made-up name the AI might return never silently becomes a real part.
 
-// File types the browser can just read as plain text -- everything else (PDF, DOCX,
-// XLS/XLSX, images) needs server-side parsing, so those go through aiAttachedFile instead.
+// File types the browser can just read as plain text -- everything else (PDF, DOCX, XLS/XLSX)
+// needs server-side parsing, so those go through aiAttachedFile instead. Images aren't offered
+// here at all -- Groq (the current AI provider) doesn't host any vision-capable model right
+// now, confirmed against its live model catalog, so an image upload would just fail every time.
 const AI_PLAIN_TEXT_EXTENSIONS = ['.txt', '.md', '.csv', '.json'];
 let aiAttachedFile = null;
 
@@ -1080,8 +1082,7 @@ async function extractPartsWithAI() {
 
   let ok, data;
   if (aiAttachedFile) {
-    const isImage = aiAttachedFile.type.startsWith('image/');
-    startAiTimer(isImage ? '10-20s for images, up to 90s if it needs a second attempt' : '5-15s for documents, up to 90s if it needs a second attempt');
+    startAiTimer('5-15s for documents, up to 90s if it needs a second attempt');
     const formData = new FormData();
     formData.append('file', aiAttachedFile);
     ({ ok, data } = await fetchAiWithTimeout('/api/ai-extract-parts-from-file', { method: 'POST', body: formData, credentials: 'same-origin' }));
