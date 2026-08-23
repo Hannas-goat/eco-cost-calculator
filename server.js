@@ -327,6 +327,18 @@ ${TAVILY_API_KEY ? '- If the text names a specific real product but leaves out a
 - If nothing usable is described, respond with {"parts":[]} -- never refuse, apologize, or ask a clarifying question instead.`;
 }
 
+// Deliberately lightweight -- this is ONLY for the search-decision phase (phase 1 in
+// groqChatOnce below), which just decides whether to call search_web, not the actual
+// extraction. It must NOT include the numbered material/process/end-of-life lists: those
+// dominate the token cost of buildExtractionPrompt() above, and since this phase runs as its
+// own separate API call (Groq rejects combining tools with JSON mode, so it can't be folded
+// into the main extraction call), paying that cost twice per "turn" bought nothing -- this
+// phase doesn't do any matching, phase 2 does. A real Groq TPM rate-limit error on this
+// project's free tier is what surfaced how much the duplicated prompt was actually costing.
+function buildSearchDecisionPrompt() {
+  return `You're about to extract structured part data from a product description for a Life Cycle Assessment calculator (a separate step handles the actual extraction). First: decide whether you need to look up a detail the text doesn't state -- a specific real product's typical weight, or what a component is actually made of. If so, call search_web with one concise, specific query. If the text already has enough detail, or nothing about it is realistically answerable by search, don't call any tool. Your reply text here is discarded either way -- only whether you call the tool matters.`;
+}
+
 // Fallback JSON extractor for when the model's JSON-mode response isn't directly
 // JSON.parse-able as-is (Groq's JSON mode guarantees syntactically valid JSON, not that it's
 // the ONLY thing in the response -- a model can still wrap it in chatty text despite being
@@ -465,17 +477,25 @@ async function groqChatOnce(messages, model) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), GROQ_TIMEOUT_MS);
   try {
-    const workingMessages = [...messages];
+    // messages[0] is always the heavy extraction system prompt (built by the caller); the
+    // rest is the actual description/file/image content, identical for both phases.
+    const [extractionSystemMessage, ...userMessages] = messages;
     const allowTools = Boolean(TAVILY_API_KEY);
+    const toolContext = []; // assistant tool-call + tool-result messages gathered in phase 1, if any
 
     try {
       if (allowTools) {
+        // Phase 1 uses its OWN lightweight system prompt, not the heavy extraction one --
+        // this phase only decides whether to search, so paying for the full numbered
+        // material/process/end-of-life lists here bought nothing and doubled the token cost
+        // of every "turn" for no benefit (see buildSearchDecisionPrompt's comment).
+        const phase1Messages = [{ role: 'system', content: buildSearchDecisionPrompt() }, ...userMessages];
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
           const message = await groqRequest({
             model,
-            messages: workingMessages,
+            messages: phase1Messages,
             temperature: 0.1,
-            max_tokens: 1024,
+            max_tokens: 256,
             tools: [SEARCH_TOOL],
             tool_choice: 'auto',
           }, controller.signal);
@@ -483,7 +503,7 @@ async function groqChatOnce(messages, model) {
           const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
           if (!toolCalls.length) break; // model didn't need to search -- move straight to phase 2
 
-          workingMessages.push(message); // the assistant's tool-call request, required context for the follow-up
+          phase1Messages.push(message); // the assistant's tool-call request, required context for the follow-up
           // Run every search the model asked for in this round concurrently, not one-by-one --
           // a round that needs 2-3 lookups shouldn't pay for their latency serially.
           const toolResults = await Promise.all(toolCalls.map(async (call) => {
@@ -492,13 +512,16 @@ async function groqChatOnce(messages, model) {
             const result = query ? await searchWeb(query, controller.signal) : { error: 'No search query was provided.' };
             return { role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) };
           }));
-          workingMessages.push(...toolResults);
+          phase1Messages.push(...toolResults);
+          toolContext.push(message, ...toolResults);
         }
       }
 
+      // Phase 2: the real extraction prompt, the original user content, plus anything
+      // phase 1 found -- this is the only call that pays for the numbered lists.
       const message = await groqRequest({
         model,
-        messages: workingMessages,
+        messages: [extractionSystemMessage, ...userMessages, ...toolContext],
         temperature: 0.1,
         max_tokens: 1024,
         response_format: { type: 'json_object' },

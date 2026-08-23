@@ -277,6 +277,22 @@ request). Without `TAVILY_API_KEY`, phase 1 doesn't run at all and the
 model is never even told the tool exists, so behavior is identical to not
 having this at all.
 
+Phase 1 and phase 2 use **different** system prompts, which matters more
+than it might look: the real extraction prompt spells out the full
+numbered material/process/end-of-life lists from `data.js` (60+ entries),
+which dominates the token cost of every call. Phase 1 doesn't do any
+matching — it only decides whether to search — so it uses a short,
+separate prompt with none of that (`buildSearchDecisionPrompt`), and only
+phase 2 pays for the full lists. An earlier version reused the same heavy
+prompt for both phases, which meant every search-using "turn" paid for
+those lists twice for no benefit; that stacked with the retry mechanism
+above (also 2 turns) was enough to trip Groq's free-tier rate limit (8000
+tokens/minute for this model) in real usage. If you hit a 429 rate-limit
+error, this cuts the marginal cost significantly, but the underlying
+per-minute cap is still real — rapid back-to-back test requests within
+the same minute can still exceed it; waiting under a minute between tests
+resets it.
+
 Each "turn" (a call to `groqChatOnce`, including any search round inside
 it) is capped at 40 seconds; since the retry mechanism above can invoke
 it twice, worst-case total server time is around 80 seconds, and the
