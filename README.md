@@ -301,6 +301,20 @@ does **not** raise the underlying 8000 TPM cap: a request still far over
 budget after the one retry fails with a message telling the user to wait
 about a minute, rather than surfacing Groq's raw rate-limit error text.
 
+`groqRequest` also retries once on Groq's `json_validate_failed` error
+(`"Failed to validate JSON. Please adjust your prompt."`) — a real
+production error where Groq's own server-side check that a JSON-mode
+generation is actually valid JSON rejects the whole request with a 400
+(seen with an empty `failed_generation`) instead of just returning
+whatever the model produced. When that happens, `extractPartsObject` —
+this project's own more forgiving fallback parser — never even gets a
+chance to run, since there's no content to hand it. The retry drops
+`response_format` entirely and asks again, relying on the prompt's own
+"output only JSON" instruction plus that fallback parser instead of
+Groq's stricter validator. If the model is genuinely stuck regardless of
+JSON mode, the second attempt fails too and surfaces a clean error rather
+than looping.
+
 Each "turn" (a call to `groqChatOnce`, including any search round inside
 it) is capped at 40 seconds; since the retry mechanism above can invoke
 it twice, worst-case total server time is around 80 seconds, and the

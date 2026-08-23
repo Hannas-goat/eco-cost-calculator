@@ -453,7 +453,16 @@ function sleep(ms, signal) {
 // small enough margin that Groq's own Retry-After (or a short default wait) clears it. This
 // does NOT raise the underlying cap -- a request that's genuinely far over budget still fails
 // after the one retry, with a message telling the user to wait rather than a raw Groq error.
-async function groqRequest(body, signal, retriedOn429 = false) {
+//
+// Also retries exactly once, WITHOUT response_format, on Groq's json_validate_failed error --
+// Groq runs its own server-side check that a JSON-mode generation is actually valid JSON, and
+// when it isn't (real example: an empty generation), it rejects the whole request with a 400
+// instead of just returning the (invalid) text -- meaning extractPartsObject, this project's
+// own more forgiving fallback parser, never even gets a chance to run on it. Dropping
+// response_format and relying on the prompt's own "output only JSON" instruction plus that
+// fallback parser gives the model a second chance that isn't gated by Groq's stricter check.
+async function groqRequest(body, signal, retryState = {}) {
+  const { retriedOn429 = false, retriedWithoutJsonMode = false } = retryState;
   const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
@@ -465,11 +474,19 @@ async function groqRequest(body, signal, retriedOn429 = false) {
     const retryAfterSeconds = Number(res.headers.get('retry-after'));
     const waitSeconds = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? Math.min(retryAfterSeconds, 15) : 5;
     await sleep(waitSeconds * 1000, signal);
-    return groqRequest(body, signal, true);
+    return groqRequest(body, signal, { retriedOn429: true, retriedWithoutJsonMode });
   }
 
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
+    let errBody = null;
+    try { errBody = JSON.parse(errText); } catch (e) { /* not JSON -- errBody stays null, handled below */ }
+
+    if (res.status === 400 && errBody?.error?.code === 'json_validate_failed' && !retriedWithoutJsonMode && body.response_format) {
+      const { response_format, ...bodyWithoutJsonMode } = body;
+      return groqRequest(bodyWithoutJsonMode, signal, { retriedOn429, retriedWithoutJsonMode: true });
+    }
+
     const err = new Error(
       res.status === 429
         ? `Groq's rate limit is still active after waiting -- please wait about a minute and try again. (${errText.slice(0, 150)})`
