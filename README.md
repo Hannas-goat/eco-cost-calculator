@@ -254,13 +254,28 @@ costs X per kg" can). Get a free key from [tavily.com](https://tavily.com)
 and set it as `TAVILY_API_KEY`. Groq has no built-in search-grounding tool
 the way Gemini did, so this is the same hand-rolled tool-calling loop
 originally built for the NVIDIA setup, just retargeted at Groq (which is
-also OpenAI-compatible, so the request/response shape carries over
-directly): the model can call a `search_web` tool mid-turn, the server
-runs the query through Tavily and feeds the results back, capped at 1
-search round per "turn" (2 turns total across the retry above, so at most
-4 HTTP round-trips for one extraction request). Without `TAVILY_API_KEY`,
-the model is never even told the tool exists (no `tools` sent in the
-request at all), so behavior is identical to not having this at all.
+also OpenAI-compatible, so the request/response shape mostly carries over
+directly).
+
+One real Groq constraint, discovered by hitting it rather than from any
+changelog: **`response_format: {type: "json_object"}` cannot be combined
+with `tools` in the same request** ("json mode cannot be combined with
+tool/function calling"). The first version of this shipped without
+knowing that and 400'd on every single search-enabled request. Each
+"turn" is now two separate calls instead of one combined one: phase 1
+(only when `TAVILY_API_KEY` is set) offers the `search_web` tool with no
+JSON mode, for up to 1 round — if the model calls it, the server runs the
+query through Tavily and feeds results back into the conversation; if it
+doesn't need to search, that call's plain-text output is simply discarded.
+Phase 2 always runs afterward: one call with JSON mode and no tools,
+given whatever phase 1 gathered as context, to produce the actual
+`{"parts":[...]}` answer with the same baseline syntax guarantee as
+before search existed. So one "turn" is 1 or 2 HTTP calls depending on
+whether the model decided to search (2 turns total across the retry
+mechanism above, so at most 4 HTTP round-trips for one extraction
+request). Without `TAVILY_API_KEY`, phase 1 doesn't run at all and the
+model is never even told the tool exists, so behavior is identical to not
+having this at all.
 
 Each "turn" (a call to `groqChatOnce`, including any search round inside
 it) is capped at 40 seconds; since the retry mechanism above can invoke

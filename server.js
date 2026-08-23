@@ -412,25 +412,55 @@ async function searchWeb(query, signal) {
   }
 }
 
-const MAX_TOOL_ROUNDS = 1; // caps how many search-then-reask cycles a single groqChatOnce call can do
-const GROQ_TIMEOUT_MS = 40000; // hard cap per groqChatOnce call (covers every round within it) -- never hang indefinitely
+const MAX_TOOL_ROUNDS = 1; // caps how many search rounds the search phase below can do
+const GROQ_TIMEOUT_MS = 40000; // hard cap per groqChatOnce call (covers both phases) -- never hang indefinitely
 
-// One logical "turn": chat/completions with a given model + messages, using JSON mode
-// (response_format below) for a baseline reliability guarantee -- the response is guaranteed
-// syntactically-valid JSON, though not guaranteed to match the exact shape asked for in the
-// prompt (that part still relies on the prompt itself, and on the numbered-index approach
-// making it hard to almost-get-right). Optionally lets the model call the search_web tool
-// (only when TAVILY_API_KEY is set -- otherwise "tools" is never sent, so the model doesn't
-// even know search exists, and behavior is identical to not having this at all).
-// extractPartsObject is a defensive fallback for the rare case content isn't parseable on its
-// own despite JSON mode.
+// Low-level single HTTP call to Groq's chat/completions. Throws on transport/HTTP error so
+// both phases below can share one error-handling path.
+async function groqRequest(body, signal) {
+  const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    const err = new Error(`AI service error (${res.status}): ${errText.slice(0, 200)}`);
+    err.httpStatus = 502;
+    throw err;
+  }
+  const data = await res.json().catch(() => null);
+  const message = data?.choices?.[0]?.message;
+  if (!message) {
+    const err = new Error('AI response was missing the expected content.');
+    err.httpStatus = 502;
+    throw err;
+  }
+  return message;
+}
+
+// One logical "turn". Two phases, run as SEPARATE requests, never combined in one: Groq
+// rejects response_format: json_object together with tools in the same request ("json mode
+// cannot be combined with tool/function calling") -- a real constraint discovered the hard
+// way when search was first wired in here, not something documented up front. So:
 //
-// One AbortController covers every round within this call, not a fresh timeout per round --
-// a per-round timeout would let total latency multiply by however many search rounds happen,
-// the same class of unbounded-wait bug this app has already been burned by once before.
-// callGroqForParts (below) can call this function itself up to twice (once normally, once as
-// a corrective retry), so worst-case total latency is roughly double GROQ_TIMEOUT_MS, not
-// GROQ_TIMEOUT_MS times however many rounds happen inside each individual call.
+// Phase 1 (only when TAVILY_API_KEY is set): up to MAX_TOOL_ROUNDS rounds where the model can
+// call the search_web tool, no JSON mode -- if it never calls a tool, this phase contributes
+// nothing but costs one call; its output text (if any) is discarded either way, since without
+// JSON mode it isn't reliably parseable and phase 2 always produces the real answer.
+//
+// Phase 2 (always runs): one call with response_format: json_object and no tools, given
+// whatever search results phase 1 gathered as extra context, to produce the actual
+// {"parts":[...]} answer with the same baseline JSON-syntax guarantee as before search
+// existed. extractPartsObject is a defensive fallback for the rare case content isn't
+// parseable on its own despite JSON mode.
+//
+// One AbortController covers both phases, not a fresh timeout per phase -- an unbounded
+// per-phase timeout is the same class of bug this app has already been burned by once
+// before. callGroqForParts (below) can call this function itself up to twice (once
+// normally, once as a corrective retry), so worst-case total latency is roughly double
+// GROQ_TIMEOUT_MS.
 async function groqChatOnce(messages, model) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), GROQ_TIMEOUT_MS);
@@ -438,60 +468,41 @@ async function groqChatOnce(messages, model) {
     const workingMessages = [...messages];
     const allowTools = Boolean(TAVILY_API_KEY);
 
-    for (let round = 0; round <= MAX_TOOL_ROUNDS; round++) {
-      let aiRes;
-      try {
-        aiRes = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+    try {
+      if (allowTools) {
+        for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+          const message = await groqRequest({
             model,
             messages: workingMessages,
             temperature: 0.1,
             max_tokens: 1024,
-            response_format: { type: 'json_object' },
-            ...(allowTools && round < MAX_TOOL_ROUNDS ? { tools: [SEARCH_TOOL], tool_choice: 'auto' } : {}),
-          }),
-          signal: controller.signal,
-        });
-      } catch (e) {
-        if (e.name === 'AbortError') {
-          return { status: 504, body: { error: `The AI service (including any web search it ran) took longer than ${GROQ_TIMEOUT_MS / 1000} seconds to respond, so the request was cancelled. Please try again -- if it keeps happening, the model may be overloaded; try a shorter description or a different GROQ_MODEL.` } };
+            tools: [SEARCH_TOOL],
+            tool_choice: 'auto',
+          }, controller.signal);
+
+          const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+          if (!toolCalls.length) break; // model didn't need to search -- move straight to phase 2
+
+          workingMessages.push(message); // the assistant's tool-call request, required context for the follow-up
+          // Run every search the model asked for in this round concurrently, not one-by-one --
+          // a round that needs 2-3 lookups shouldn't pay for their latency serially.
+          const toolResults = await Promise.all(toolCalls.map(async (call) => {
+            let query = '';
+            try { query = JSON.parse(call.function?.arguments || '{}').query || ''; } catch (e) { /* malformed args -- proceed with empty query below */ }
+            const result = query ? await searchWeb(query, controller.signal) : { error: 'No search query was provided.' };
+            return { role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) };
+          }));
+          workingMessages.push(...toolResults);
         }
-        return { status: 502, body: { error: 'Could not reach the AI service: ' + e.message } };
       }
 
-      if (!aiRes.ok) {
-        const errText = await aiRes.text().catch(() => '');
-        return { status: 502, body: { error: `AI service error (${aiRes.status}): ${errText.slice(0, 200)}` } };
-      }
-
-      const data = await aiRes.json().catch(() => null);
-      const message = data?.choices?.[0]?.message;
-      if (!message) {
-        return { status: 502, body: { error: 'AI response was missing the expected content.' } };
-      }
-
-      const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-      if (toolCalls.length && round < MAX_TOOL_ROUNDS) {
-        workingMessages.push(message); // the assistant's tool-call request, required context for the follow-up
-        // Run every search the model asked for in this round concurrently, not one-by-one --
-        // a round that needs 2-3 lookups shouldn't pay for their latency serially.
-        const toolResults = await Promise.all(toolCalls.map(async (call) => {
-          let query = '';
-          try { query = JSON.parse(call.function?.arguments || '{}').query || ''; } catch (e) { /* malformed args -- proceed with empty query below */ }
-          const result = query ? await searchWeb(query, controller.signal) : { error: 'No search query was provided.' };
-          return { role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) };
-        }));
-        workingMessages.push(...toolResults);
-        continue; // ask the model again, now with search results in context
-      }
-      if (toolCalls.length) {
-        // Reached the final round (tools weren't even offered this time) and the model
-        // still tried to call one -- treat it the same as never settling, rather than
-        // falling through to a confusing "missing content" error below.
-        return { status: 502, body: { error: 'The AI ran multiple searches without settling on a final answer. Try a more specific description.' } };
-      }
+      const message = await groqRequest({
+        model,
+        messages: workingMessages,
+        temperature: 0.1,
+        max_tokens: 1024,
+        response_format: { type: 'json_object' },
+      }, controller.signal);
 
       const content = message.content;
       if (typeof content !== 'string') {
@@ -513,11 +524,15 @@ async function groqChatOnce(messages, model) {
 
       // cap so a runaway response can't flood the page
       return { status: 200, body: { parts: resolvePartIndices(parsed.parts.slice(0, 30)) } };
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        return { status: 504, body: { error: `The AI service (including any web search it ran) took longer than ${GROQ_TIMEOUT_MS / 1000} seconds to respond, so the request was cancelled. Please try again -- if it keeps happening, the model may be overloaded; try a shorter description or a different GROQ_MODEL.` } };
+      }
+      if (e.httpStatus) {
+        return { status: e.httpStatus, body: { error: e.message } };
+      }
+      return { status: 502, body: { error: 'Could not reach the AI service: ' + e.message } };
     }
-    // Unreachable in practice: every loop iteration above returns or continues, and
-    // continuing is only allowed while round < MAX_TOOL_ROUNDS, so the final iteration
-    // always hits a return -- kept as a defensive fallback in case that invariant changes.
-    return { status: 502, body: { error: 'The AI ran multiple searches without settling on a final answer. Try a more specific description.' } };
   } finally {
     clearTimeout(timeoutId);
   }
