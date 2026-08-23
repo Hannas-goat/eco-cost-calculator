@@ -287,11 +287,19 @@ phase 2 pays for the full lists. An earlier version reused the same heavy
 prompt for both phases, which meant every search-using "turn" paid for
 those lists twice for no benefit; that stacked with the retry mechanism
 above (also 2 turns) was enough to trip Groq's free-tier rate limit (8000
-tokens/minute for this model) in real usage. If you hit a 429 rate-limit
-error, this cuts the marginal cost significantly, but the underlying
-per-minute cap is still real — rapid back-to-back test requests within
-the same minute can still exceed it; waiting under a minute between tests
-resets it.
+tokens/minute for this model) in real usage. This cuts the marginal cost
+significantly, but the underlying per-minute cap is still real — rapid
+back-to-back test requests within the same minute can still exceed it.
+
+On top of that, `groqRequest` (the shared low-level HTTP call both phases
+use) retries exactly once on a 429: it waits for whatever `Retry-After`
+Groq sends back (capped at 15 seconds; a fixed 5-second wait if that
+header is missing), then retries the same request. This is transparent
+to the user when it works — a request that would have failed on a
+borderline rate-limit hit just takes a few seconds longer instead. It
+does **not** raise the underlying 8000 TPM cap: a request still far over
+budget after the one retry fails with a message telling the user to wait
+about a minute, rather than surfacing Groq's raw rate-limit error text.
 
 Each "turn" (a call to `groqChatOnce`, including any search round inside
 it) is capped at 40 seconds; since the retry mechanism above can invoke

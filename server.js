@@ -427,19 +427,55 @@ async function searchWeb(query, signal) {
 const MAX_TOOL_ROUNDS = 1; // caps how many search rounds the search phase below can do
 const GROQ_TIMEOUT_MS = 40000; // hard cap per groqChatOnce call (covers both phases) -- never hang indefinitely
 
+// Waits ms milliseconds, but rejects immediately (AbortError) if signal fires first -- so a
+// rate-limit backoff wait can never outlive the caller's overall timeout budget.
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    if (!signal) return;
+    if (signal.aborted) {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    signal.addEventListener('abort', () => {
+      clearTimeout(timer);
+      reject(new DOMException('Aborted', 'AbortError'));
+    }, { once: true });
+  });
+}
+
 // Low-level single HTTP call to Groq's chat/completions. Throws on transport/HTTP error so
 // both phases below can share one error-handling path.
-async function groqRequest(body, signal) {
+//
+// Retries exactly once on a 429 (rate limit) -- real usage on this project's Groq free tier
+// hit its per-minute token cap (8000 TPM for this model) more than once, sometimes by a
+// small enough margin that Groq's own Retry-After (or a short default wait) clears it. This
+// does NOT raise the underlying cap -- a request that's genuinely far over budget still fails
+// after the one retry, with a message telling the user to wait rather than a raw Groq error.
+async function groqRequest(body, signal, retriedOn429 = false) {
   const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
     signal,
   });
+
+  if (res.status === 429 && !retriedOn429) {
+    const retryAfterSeconds = Number(res.headers.get('retry-after'));
+    const waitSeconds = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? Math.min(retryAfterSeconds, 15) : 5;
+    await sleep(waitSeconds * 1000, signal);
+    return groqRequest(body, signal, true);
+  }
+
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
-    const err = new Error(`AI service error (${res.status}): ${errText.slice(0, 200)}`);
-    err.httpStatus = 502;
+    const err = new Error(
+      res.status === 429
+        ? `Groq's rate limit is still active after waiting -- please wait about a minute and try again. (${errText.slice(0, 150)})`
+        : `AI service error (${res.status}): ${errText.slice(0, 200)}`
+    );
+    err.httpStatus = res.status === 429 ? 429 : 502;
     throw err;
   }
   const data = await res.json().catch(() => null);
