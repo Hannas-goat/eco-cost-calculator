@@ -461,8 +461,16 @@ function sleep(ms, signal) {
 // own more forgiving fallback parser, never even gets a chance to run on it. Dropping
 // response_format and relying on the prompt's own "output only JSON" instruction plus that
 // fallback parser gives the model a second chance that isn't gated by Groq's stricter check.
+//
+// Also retries exactly once, with the SAME request, on Groq's tool_use_failed error -- a real
+// production failure where the model hallucinated a call to a nonexistent tool ("web.run",
+// not anything this app defines) on a request that offered no tools at all, which Groq
+// rejects outright. The primary fix for this is in groqChatOnce (phase 2 no longer carries
+// phase 1's raw tool-call-shaped messages, which is what was likely priming the model to
+// keep "calling tools"); this retry is a defensive backstop in case the hallucination still
+// happens occasionally even without that priming.
 async function groqRequest(body, signal, retryState = {}) {
-  const { retriedOn429 = false, retriedWithoutJsonMode = false } = retryState;
+  const { retriedOn429 = false, retriedWithoutJsonMode = false, retriedAfterToolUseFailed = false } = retryState;
   const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
@@ -474,7 +482,7 @@ async function groqRequest(body, signal, retryState = {}) {
     const retryAfterSeconds = Number(res.headers.get('retry-after'));
     const waitSeconds = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? Math.min(retryAfterSeconds, 15) : 5;
     await sleep(waitSeconds * 1000, signal);
-    return groqRequest(body, signal, { retriedOn429: true, retriedWithoutJsonMode });
+    return groqRequest(body, signal, { retriedOn429: true, retriedWithoutJsonMode, retriedAfterToolUseFailed });
   }
 
   if (!res.ok) {
@@ -484,7 +492,11 @@ async function groqRequest(body, signal, retryState = {}) {
 
     if (res.status === 400 && errBody?.error?.code === 'json_validate_failed' && !retriedWithoutJsonMode && body.response_format) {
       const { response_format, ...bodyWithoutJsonMode } = body;
-      return groqRequest(bodyWithoutJsonMode, signal, { retriedOn429, retriedWithoutJsonMode: true });
+      return groqRequest(bodyWithoutJsonMode, signal, { retriedOn429, retriedWithoutJsonMode: true, retriedAfterToolUseFailed });
+    }
+
+    if (res.status === 400 && errBody?.error?.code === 'tool_use_failed' && !retriedAfterToolUseFailed) {
+      return groqRequest(body, signal, { retriedOn429, retriedWithoutJsonMode, retriedAfterToolUseFailed: true });
     }
 
     const err = new Error(
@@ -534,7 +546,7 @@ async function groqChatOnce(messages, model) {
     // rest is the actual description/file/image content, identical for both phases.
     const [extractionSystemMessage, ...userMessages] = messages;
     const allowTools = Boolean(TAVILY_API_KEY);
-    const toolContext = []; // assistant tool-call + tool-result messages gathered in phase 1, if any
+    const searchFindings = []; // plain-text summaries of what phase 1's searches found, if any
 
     try {
       if (allowTools) {
@@ -563,18 +575,36 @@ async function groqChatOnce(messages, model) {
             let query = '';
             try { query = JSON.parse(call.function?.arguments || '{}').query || ''; } catch (e) { /* malformed args -- proceed with empty query below */ }
             const result = query ? await searchWeb(query, controller.signal) : { error: 'No search query was provided.' };
+            const summary = result.error
+              ? `Search failed: ${result.error}`
+              : result.answer || (result.results || []).map((r) => r.snippet).filter(Boolean).join(' | ') || 'No useful results.';
+            searchFindings.push(`Query: "${query || '(none given)'}" -> ${summary}`);
             return { role: 'tool', tool_call_id: call.id, content: JSON.stringify(result) };
           }));
           phase1Messages.push(...toolResults);
-          toolContext.push(message, ...toolResults);
         }
       }
 
-      // Phase 2: the real extraction prompt, the original user content, plus anything
-      // phase 1 found -- this is the only call that pays for the numbered lists.
+      // Phase 2: the real extraction prompt, the original user content, plus a PLAIN-TEXT
+      // summary of anything phase 1 found -- deliberately NOT phase 1's raw tool-call/
+      // tool-result message shape. A real production failure showed the model
+      // pattern-matching on "I was just calling tools" and hallucinating a tool call (a
+      // nonexistent "web.run") in phase 2, where no tools are offered at all -- Groq's API
+      // correctly rejects that outright ("Tool choice is none, but model called a tool").
+      // A plain informational message carries the same content without a tool-call shape
+      // for the model to imitate.
+      const phase2Messages = [...userMessages];
+      if (searchFindings.length) {
+        phase2Messages.push({
+          role: 'user',
+          content: `Web search findings (already gathered -- no further searching is possible right now, just use this information directly if it's relevant):\n${searchFindings.join('\n')}`,
+        });
+      }
+
+      // (phase 2 is the only call that pays for the numbered lists)
       const message = await groqRequest({
         model,
-        messages: [extractionSystemMessage, ...userMessages, ...toolContext],
+        messages: [extractionSystemMessage, ...phase2Messages],
         temperature: 0.1,
         max_tokens: 1024,
         response_format: { type: 'json_object' },

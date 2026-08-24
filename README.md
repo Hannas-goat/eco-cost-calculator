@@ -315,6 +315,20 @@ Groq's stricter validator. If the model is genuinely stuck regardless of
 JSON mode, the second attempt fails too and surfaces a clean error rather
 than looping.
 
+A related real failure: `"Tool choice is none, but model called a tool"`
+(Groq error code `tool_use_failed`), seen with the model hallucinating a
+call to `web.run` — not a tool this app defines — on phase 2, which never
+offers any tools at all. The likely cause: when phase 1 actually
+searches, its raw tool-call/tool-result message shape was being carried
+straight into phase 2's context, and the model pattern-matched on
+"I was just calling tools" and tried to keep doing it. The real fix is in
+`groqChatOnce`, not `groqRequest` — phase 2 now gets a plain-text summary
+of what phase 1 found (`"Web search findings: ..."`) instead of the raw
+tool-call-shaped messages, removing the pattern for the model to imitate
+in the first place. `groqRequest` also retries once on this error code as
+a defensive backstop, in case the hallucination still happens
+occasionally even without that priming.
+
 Each "turn" (a call to `groqChatOnce`, including any search round inside
 it) is capped at 40 seconds; since the retry mechanism above can invoke
 it twice, worst-case total server time is around 80 seconds, and the
