@@ -445,14 +445,21 @@ function sleep(ms, signal) {
   });
 }
 
+const MAX_429_RETRIES = 3; // retry attempts on rate-limit, not counting the original request
+
 // Low-level single HTTP call to Groq's chat/completions. Throws on transport/HTTP error so
 // both phases below can share one error-handling path.
 //
-// Retries exactly once on a 429 (rate limit) -- real usage on this project's Groq free tier
-// hit its per-minute token cap (8000 TPM for this model) more than once, sometimes by a
-// small enough margin that Groq's own Retry-After (or a short default wait) clears it. This
-// does NOT raise the underlying cap -- a request that's genuinely far over budget still fails
-// after the one retry, with a message telling the user to wait rather than a raw Groq error.
+// Exponential backoff on 429 (rate limit), up to MAX_429_RETRIES retries -- real usage on
+// this project's Groq free tier hit its per-minute token cap (8000 TPM for this model) more
+// than once, sometimes by a small enough margin that a short wait clears it. Groq's own
+// Retry-After header is honored exactly when present (capped at 15s, since it tells us
+// precisely how long the server wants us to wait); when it's absent, the wait doubles each
+// attempt (2s, 4s, 8s, capped at 15s) rather than reusing one fixed guess for every retry.
+// This does NOT raise the underlying cap -- a request that's genuinely far over budget still
+// fails after all retries are exhausted, with a message telling the user to wait rather than
+// a raw Groq error. The shared AbortController this is called under (see groqChatOnce) bounds
+// the total wait regardless, so a long backoff sequence can't outlive the per-call timeout.
 //
 // Also retries exactly once, WITHOUT response_format, on Groq's json_validate_failed error --
 // Groq runs its own server-side check that a JSON-mode generation is actually valid JSON, and
@@ -470,7 +477,7 @@ function sleep(ms, signal) {
 // keep "calling tools"); this retry is a defensive backstop in case the hallucination still
 // happens occasionally even without that priming.
 async function groqRequest(body, signal, retryState = {}) {
-  const { retriedOn429 = false, retriedWithoutJsonMode = false, retriedAfterToolUseFailed = false } = retryState;
+  const { retries429 = 0, retriedWithoutJsonMode = false, retriedAfterToolUseFailed = false } = retryState;
   const res = await fetch(`${GROQ_BASE_URL}/chat/completions`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${GROQ_API_KEY}`, 'Content-Type': 'application/json' },
@@ -478,11 +485,13 @@ async function groqRequest(body, signal, retryState = {}) {
     signal,
   });
 
-  if (res.status === 429 && !retriedOn429) {
+  if (res.status === 429 && retries429 < MAX_429_RETRIES) {
     const retryAfterSeconds = Number(res.headers.get('retry-after'));
-    const waitSeconds = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? Math.min(retryAfterSeconds, 15) : 5;
+    const waitSeconds = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+      ? Math.min(retryAfterSeconds, 15)
+      : Math.min(2 ** (retries429 + 1), 15); // no header given -- exponential backoff: 2s, 4s, 8s...
     await sleep(waitSeconds * 1000, signal);
-    return groqRequest(body, signal, { retriedOn429: true, retriedWithoutJsonMode, retriedAfterToolUseFailed });
+    return groqRequest(body, signal, { retries429: retries429 + 1, retriedWithoutJsonMode, retriedAfterToolUseFailed });
   }
 
   if (!res.ok) {
@@ -492,16 +501,16 @@ async function groqRequest(body, signal, retryState = {}) {
 
     if (res.status === 400 && errBody?.error?.code === 'json_validate_failed' && !retriedWithoutJsonMode && body.response_format) {
       const { response_format, ...bodyWithoutJsonMode } = body;
-      return groqRequest(bodyWithoutJsonMode, signal, { retriedOn429, retriedWithoutJsonMode: true, retriedAfterToolUseFailed });
+      return groqRequest(bodyWithoutJsonMode, signal, { retries429, retriedWithoutJsonMode: true, retriedAfterToolUseFailed });
     }
 
     if (res.status === 400 && errBody?.error?.code === 'tool_use_failed' && !retriedAfterToolUseFailed) {
-      return groqRequest(body, signal, { retriedOn429, retriedWithoutJsonMode, retriedAfterToolUseFailed: true });
+      return groqRequest(body, signal, { retries429, retriedWithoutJsonMode, retriedAfterToolUseFailed: true });
     }
 
     const err = new Error(
       res.status === 429
-        ? `Groq's rate limit is still active after waiting -- please wait about a minute and try again. (${errText.slice(0, 150)})`
+        ? `Groq's rate limit is still active after ${MAX_429_RETRIES} retries -- please wait about a minute and try again. (${errText.slice(0, 150)})`
         : `AI service error (${res.status}): ${errText.slice(0, 200)}`
     );
     err.httpStatus = res.status === 429 ? 429 : 502;
