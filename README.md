@@ -152,192 +152,126 @@ determined — weight is product-specific in a way generic material-class
 impact figures aren't, so unlike the estimate case, there's no reasonable
 generic number to fall back to there.
 
-Uses [Groq's](https://console.groq.com) OpenAI-compatible API — PDF text
+Uses [NVIDIA's](https://build.nvidia.com) OpenAI-compatible API — PDF text
 comes via `pdf-parse`, `.docx` via `mammoth`, `.xls`/`.xlsx` via `xlsx`
 (converted to CSV text) — all parsed **server-side**, capped at 15 MB per
-file.
+file. Images go to a separate vision-capable model as inline image data.
 
-Image upload isn't offered: Groq currently hosts no vision-capable
-(image-input) model at all — confirmed by reading its complete live model
-catalog (Alibaba Cloud, Canopy Labs, Groq, Meta, and OpenAI groups): all
-text-only reasoning models, Whisper (speech-to-text), Orpheus
-(text-to-speech), and Llama Prompt Guard (a safety classifier). Both of
-Groq's previous vision-capable lineups (the Llama 3.2 vision-preview
-series, then Llama 4 Scout/Maverick) have been deprecated and not
-replaced with a new multimodal model. `GROQ_VISION_MODEL` exists as an
-environment variable for exactly this reason: it intentionally has no
-default, and the image-upload code path (still present, unreachable from
-the UI's file picker since it no longer offers image types) returns a
-clear "not currently supported" error rather than attempting a request
-that's guaranteed to fail. If Groq ever hosts a vision-capable model, or
-you want to point just this path at a different provider, set
-`GROQ_VISION_MODEL` and re-add image MIME types to the file input's
-`accept` attribute in `index.html`.
+This project has tried three AI providers for this feature, each change
+made for a concrete reason rather than just trying a different vendor:
+NVIDIA (the original setup) → Google Gemini (for its native
+`responseSchema` structured-output mode, which constrains generation to a
+fixed JSON shape at the API level instead of just asking nicely — closes
+off a whole class of "model didn't follow the format" bugs; never
+actually usable here since Gemini's free tier required a billing account
+on file for this account/region) → Groq (Gemini's replacement, since its
+free tier didn't have that billing requirement) → **back to NVIDIA**,
+after a long run of Groq-specific problems: a default model that turned
+out to be deprecated, `tools` being flatly incompatible with JSON mode on
+that API (400 error, discovered by hitting it), an 8000-tokens/minute
+free-tier rate cap that real usage tripped more than once, a server-side
+JSON validator that rejected malformed output outright instead of
+returning it for this project's own fallback parser to attempt, and a
+hallucinated tool call Groq's API rejected outright. NVIDIA never
+produced any of those specific failures in this project's use of it, so
+it's the more proven option despite lacking Gemini's structural
+guarantee — this version leans on the same numbered-index approach used
+throughout instead (`"material":39` rather than `"material":"Graphite
+(battery anode)"` — a wrong number is a much narrower failure mode than a
+wrong string, and any out-of-range or non-numeric response just resolves
+to "no match" instead of a fabricated-looking name) plus
+`extractPartsObject`, a brace-scanning fallback parser that recovers a
+`{"parts":[...]}` object even if the model wraps valid JSON in extra
+commentary despite being told not to.
+
+A smaller/faster model was tried once, briefly, purely to chase lower
+latency (first on the NVIDIA setup, then again as Groq's default) — both
+times it was measurably less reliable about following the requested JSON
+shape, once wrapping an entire response in a hallucinated fake tool-call
+structure with no real data in it. `NVIDIA_MODEL` defaults to a 70B-class
+model for this reason; trading it for a smaller one is a real
+reliability/speed tradeoff, not a free win.
 
 This calls the AI from the **server**, never the browser — the API key is a
 secret credential and must never end up in any file shipped to the client.
 To enable it:
 
-1. Get a free API key from [console.groq.com](https://console.groq.com) —
-   no credit card required for the free tier.
-2. Set `GROQ_API_KEY` as an environment variable on your Render service
+1. Get an API key from [build.nvidia.com](https://build.nvidia.com).
+2. Set `NVIDIA_API_KEY` as an environment variable on your Render service
    (Environment tab — same place as `JWT_SECRET`/`TURSO_*`).
-3. Optionally set `GROQ_MODEL` (defaults to `openai/gpt-oss-20b` — the
-   first default tried here, `llama-3.3-70b-versatile`, turned out to no
-   longer exist on Groq; model catalogs shift fast enough that it's worth
-   checking [console.groq.com](https://console.groq.com)'s Playground for
-   a current name if this one ever 404s too) or `GROQ_BASE_URL`.
-   `GROQ_VISION_MODEL` also exists but has no default and isn't currently
-   usable — see "Image upload isn't offered" below.
+3. Optionally set `NVIDIA_MODEL` (defaults to `meta/llama-3.1-70b-instruct`),
+   `NVIDIA_VISION_MODEL` (defaults to `meta/llama-3.2-90b-vision-instruct` —
+   this default is the most likely to need changing, since vision-model
+   availability varies by plan/key), or `NVIDIA_BASE_URL`.
 4. Optionally, for web search: get a free key from
    [tavily.com](https://tavily.com) and set it as `TAVILY_API_KEY`, same
    place as above.
 
-Until `GROQ_API_KEY` is set, the feature returns a clear "not configured"
+Until `NVIDIA_API_KEY` is set, the feature returns a clear "not configured"
 message and everything else keeps working exactly as before — same pattern
 as the optional Supabase/Turso setup elsewhere in this README. Rate-limited
-server-side (10 requests / 10 minutes per IP) since it hits a paid-beyond-
-free-tier API.
+server-side (10 requests / 10 minutes per IP) since it hits a paid API.
 
-This project has used three different AI providers for this feature so
-far, each swapped in for a concrete reason rather than just trying a
-different vendor: NVIDIA's hosted Llama models (the original setup),
-Google Gemini (for its native `responseSchema` structured-output mode,
-which constrains generation to a fixed JSON shape at the API level instead
-of just asking nicely — closes off a whole class of "model didn't follow
-the format" bugs that no amount of prompt tightening fully solved on the
-first setup), and now Groq (because Gemini's free tier required a billing
-account on file for this account/region, which wasn't usable without
-adding payment info). Groq doesn't offer Gemini's structural schema
-guarantee — its JSON mode (`response_format: {type: "json_object"}`)
-guarantees only that the response is *syntactically* valid JSON, not that
-it matches the exact requested shape — so this version leans more on the
-same numbered-index approach used throughout (`"material":39` rather than
-`"material":"Graphite (battery anode)"` — a wrong number is a much
-narrower failure mode than a wrong string, and any out-of-range or
-non-numeric response just resolves to "no match" instead of a
-fabricated-looking name) plus `extractPartsObject`, a brace-scanning
-fallback parser that recovers a `{"parts":[...]}` object even if the model
-wraps valid JSON in extra commentary despite being told not to.
-
-A large (70B-class) default model was the original intent — a smaller
-model was already tried once on the NVIDIA setup purely to chase lower
-latency, and it wasn't reliable about following the requested JSON shape
-at all, once wrapping the entire response in a hallucinated fake
-tool-call structure with no real data in it. In practice the model that
-turned out to actually be available on Groq's free tier
-(`openai/gpt-oss-20b`) is smaller than that, and shows a milder version
-of the same problem: it will sometimes find and name the right parts but
-leave them practically unusable — either both "material" and "estimate"
-null, or a material matched with no "weight" to attach it to (a matched
-material with no weight can't become a real line item any more than an
-unmatched one can). Rather than accept that silently, the server checks
-for exactly that — every part missing *either* a usable
-material-or-estimate *or* a usable weight — and retries once with a
-pointed correction naming what was left blank. Part of that correction:
-if the text gave one overall weight for the whole product without
-breaking it down per component, the model should apportion that total
-across the parts by reasonable typical mass proportions rather than
-leaving every component's weight null (a common real-world pattern this
-project hadn't originally accounted for). A normal or partial response
-never triggers the retry — only a response that's completely useless
-despite technically succeeding — so it doesn't add latency to the common
-case, though it does mean a worst-case request can now take close to
-twice the per-call timeout.
-
-**Web search** is back (it was dropped for a while during the Gemini→Groq
-switch, then re-added once it became clear that weight — unlike material
-class impact figures — really did need it: a component's typical weight
-is a real, look-up-able fact for a specific real product, not something
-general domain knowledge alone can approximate the way "rubber roughly
-costs X per kg" can). Get a free key from [tavily.com](https://tavily.com)
-and set it as `TAVILY_API_KEY`. Groq has no built-in search-grounding tool
-the way Gemini did, so this is the same hand-rolled tool-calling loop
-originally built for the NVIDIA setup, just retargeted at Groq (which is
-also OpenAI-compatible, so the request/response shape mostly carries over
-directly).
-
-One real Groq constraint, discovered by hitting it rather than from any
-changelog: **`response_format: {type: "json_object"}` cannot be combined
-with `tools` in the same request** ("json mode cannot be combined with
-tool/function calling"). The first version of this shipped without
-knowing that and 400'd on every single search-enabled request. Each
-"turn" is now two separate calls instead of one combined one: phase 1
-(only when `TAVILY_API_KEY` is set) offers the `search_web` tool with no
-JSON mode, for up to 1 round — if the model calls it, the server runs the
-query through Tavily and feeds results back into the conversation; if it
-doesn't need to search, that call's plain-text output is simply discarded.
-Phase 2 always runs afterward: one call with JSON mode and no tools,
-given whatever phase 1 gathered as context, to produce the actual
-`{"parts":[...]}` answer with the same baseline syntax guarantee as
-before search existed. So one "turn" is 1 or 2 HTTP calls depending on
-whether the model decided to search (2 turns total across the retry
-mechanism above, so at most 4 HTTP round-trips for one extraction
-request). Without `TAVILY_API_KEY`, phase 1 doesn't run at all and the
-model is never even told the tool exists, so behavior is identical to not
+**Web search:** with `TAVILY_API_KEY` set, the model can call a
+`search_web` tool mid-extraction to look up a detail your text/file
+doesn't state — a real product's typical weight, or what a component is
+actually made of — instead of just leaving it null; a component's typical
+weight is a real, look-up-able fact for a specific real product, not
+something general domain knowledge alone can approximate the way "rubber
+roughly costs X per kg" can. This is a single unified round-based loop
+(up to 1 search round before the model must produce its final answer) —
+NVIDIA's API doesn't reject combining tool definitions with the plain
+"output only JSON" prompt instruction the way Groq's did, so unlike that
+version, this doesn't need a two-call phase split. Without
+`TAVILY_API_KEY`, the model is never even told the tool exists (no
+`tools` sent in the request at all), so behavior is identical to not
 having this at all.
 
-Phase 1 and phase 2 use **different** system prompts, which matters more
-than it might look: the real extraction prompt spells out the full
-numbered material/process/end-of-life lists from `data.js` (60+ entries),
-which dominates the token cost of every call. Phase 1 doesn't do any
-matching — it only decides whether to search — so it uses a short,
-separate prompt with none of that (`buildSearchDecisionPrompt`), and only
-phase 2 pays for the full lists. An earlier version reused the same heavy
-prompt for both phases, which meant every search-using "turn" paid for
-those lists twice for no benefit; that stacked with the retry mechanism
-above (also 2 turns) was enough to trip Groq's free-tier rate limit (8000
-tokens/minute for this model) in real usage. This cuts the marginal cost
-significantly, but the underlying per-minute cap is still real — rapid
-back-to-back test requests within the same minute can still exceed it.
+The shared low-level request function retries on a 429 (rate limit) with
+exponential backoff, up to 3 retries (4 total attempts) — this stays
+regardless of which provider is active, since "a paid external API can
+rate-limit you" doesn't change even when the specific provider does. It
+honors the API's `Retry-After` header exactly when present (capped at 15
+seconds, since it's telling us precisely how long to wait); when that
+header is missing, the wait doubles each attempt (2s, 4s, 8s, capped at
+15s) instead of reusing one fixed guess for every retry. This is
+transparent to the user when it works — a request that would have failed
+on a borderline rate-limit hit just takes longer instead.
 
-On top of that, `groqRequest` (the shared low-level HTTP call both phases
-use) retries on a 429 with exponential backoff, up to 3 retries (4 total
-attempts). It honors Groq's `Retry-After` header exactly when present
-(capped at 15 seconds — Groq is telling us precisely how long to wait, so
-there's no reason to guess); when that header is missing, the wait
-doubles each attempt (2s, 4s, 8s, capped at 15s) instead of reusing one
-fixed guess for every retry. This is transparent to the user when it
-works — a request that would have failed on a borderline rate-limit hit
-just takes longer instead. It does **not** raise the underlying 8000 TPM
-cap: a request still far over budget after all retries are exhausted
-fails with a message telling the user to wait about a minute, rather than
-surfacing Groq's raw rate-limit error text. The shared per-call timeout
-(below) still bounds the total wait, so a long backoff sequence can't
-outlive it.
+Separately, if a response finds named parts but leaves every one of them
+unusable — either both "material" and "estimate" null, or a material
+matched with no "weight" to attach it to (a matched material with no
+weight can't become a real line item any more than an unmatched one can)
+— the server retries once with a pointed correction naming what was left
+blank, rather than accepting a response that's functionally the same as
+finding nothing despite technically succeeding. Part of that correction:
+if the text gave one overall weight for the whole product without
+breaking it down per component, the model should apportion that total
+across the parts by reasonable typical mass proportions (or use
+`search_web`, if available, to look up a typical weight for a named real
+product) rather than leaving every component's weight null. A normal or
+partial response never triggers this retry, so it doesn't add latency to
+the common case — though it does mean a worst-case request can take close
+to twice the per-call timeout.
 
-`groqRequest` also retries once on Groq's `json_validate_failed` error
-(`"Failed to validate JSON. Please adjust your prompt."`) — a real
-production error where Groq's own server-side check that a JSON-mode
-generation is actually valid JSON rejects the whole request with a 400
-(seen with an empty `failed_generation`) instead of just returning
-whatever the model produced. When that happens, `extractPartsObject` —
-this project's own more forgiving fallback parser — never even gets a
-chance to run, since there's no content to hand it. The retry drops
-`response_format` entirely and asks again, relying on the prompt's own
-"output only JSON" instruction plus that fallback parser instead of
-Groq's stricter validator. If the model is genuinely stuck regardless of
-JSON mode, the second attempt fails too and surfaces a clean error rather
-than looping.
+If a part still has no catalog match and no usable AI estimate after that
+retry, a deliberately generic, deliberately modest placeholder figure
+(`GENERIC_FALLBACK_ESTIMATE`) gets attached anyway rather than leaving the
+part unusable — a policy choice, not a data-quality claim: every part the
+AI found and could weigh becomes a real, reviewable line item, rather than
+requiring a trip to "Custom line item" for anything the model wasn't
+confident about. It's named distinctly in the UI (`"<part> (AI couldn't
+identify this — GENERIC placeholder values, please correct)"`) so the
+difference in trust level from a genuine AI estimate is obvious, not just
+implied. A part only still gets skipped when its weight itself couldn't be
+determined — weight is product-specific in a way generic material-class
+impact figures aren't, so there's no reasonable generic number to fall
+back to there.
 
-A related real failure: `"Tool choice is none, but model called a tool"`
-(Groq error code `tool_use_failed`), seen with the model hallucinating a
-call to `web.run` — not a tool this app defines — on phase 2, which never
-offers any tools at all. The likely cause: when phase 1 actually
-searches, its raw tool-call/tool-result message shape was being carried
-straight into phase 2's context, and the model pattern-matched on
-"I was just calling tools" and tried to keep doing it. The real fix is in
-`groqChatOnce`, not `groqRequest` — phase 2 now gets a plain-text summary
-of what phase 1 found (`"Web search findings: ..."`) instead of the raw
-tool-call-shaped messages, removing the pattern for the model to imitate
-in the first place. `groqRequest` also retries once on this error code as
-a defensive backstop, in case the hallucination still happens
-occasionally even without that priming.
-
-Each "turn" (a call to `groqChatOnce`, including any search round inside
-it) is capped at 40 seconds; since the retry mechanism above can invoke
-it twice, worst-case total server time is around 80 seconds, and the
-browser's own backstop is set to 100 seconds accordingly.
+Each "turn" (one call to the AI, including any search round inside it) is
+capped at 45 seconds; since the retry mechanism above can invoke it
+twice, worst-case total server time is around 90 seconds, and the
+browser's own backstop is set accordingly.
 
 ## Accounts
 

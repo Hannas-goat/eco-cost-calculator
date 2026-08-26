@@ -103,11 +103,11 @@
       </div>
 
       <div class="ai-fill-row">
-        <span class="hint" style="margin:0 0 8px;">Or describe it in plain language, or attach a file (text, PDF, Word, or Excel), and let AI find the parts <span class="hint-inline">(material/process/end-of-life get matched to what's actually in the reference data — AI suggestions are added directly, so double-check them below)</span>:</span>
+        <span class="hint" style="margin:0 0 8px;">Or describe it in plain language, or attach a file (text, PDF, Word, Excel, or a photo/spec-sheet image), and let AI find the parts <span class="hint-inline">(material/process/end-of-life get matched to what's actually in the reference data — AI suggestions are added directly, so double-check them below)</span>:</span>
         <textarea id="ai-description" rows="3" placeholder="e.g. A 4kg aluminium bracket made by extrusion from secondary aluminium, recycled at end of life"></textarea>
         <div class="export-row">
           <label class="btn-ghost" for="ai-file-input" style="cursor:pointer;">📎 Attach a file</label>
-          <input type="file" id="ai-file-input" accept=".txt,.md,.csv,.json,.pdf,.docx,.xls,.xlsx" style="display:none;" onchange="handleAiFileSelect(event)">
+          <input type="file" id="ai-file-input" accept=".txt,.md,.csv,.json,.pdf,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.webp,.gif" style="display:none;" onchange="handleAiFileSelect(event)">
           <button type="button" class="btn-primary" onclick="extractPartsWithAI()">✨ Extract parts with AI</button>
           <span class="hint-inline" id="ai-status"></span>
         </div>

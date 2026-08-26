@@ -955,10 +955,8 @@ function uploadPartsCsv(event) {
 // Matching against MATERIALS/PROCESSES/END_OF_LIFE happens here, same as CSV upload,
 // so a made-up name the AI might return never silently becomes a real part.
 
-// File types the browser can just read as plain text -- everything else (PDF, DOCX, XLS/XLSX)
-// needs server-side parsing, so those go through aiAttachedFile instead. Images aren't offered
-// here at all -- Groq (the current AI provider) doesn't host any vision-capable model right
-// now, confirmed against its live model catalog, so an image upload would just fail every time.
+// File types the browser can just read as plain text -- everything else (PDF, DOCX, XLS/XLSX,
+// images) needs server-side parsing, so those go through aiAttachedFile instead.
 const AI_PLAIN_TEXT_EXTENSIONS = ['.txt', '.md', '.csv', '.json'];
 let aiAttachedFile = null;
 
@@ -1068,12 +1066,12 @@ function stopAiTimer() {
   if (aiTimerHandle) { clearInterval(aiTimerHandle); aiTimerHandle = null; }
 }
 
-// Backstop in case the server itself stalls (not just Groq, which the server already times
-// out on its own end after 40s per "turn" -- a turn can itself include a web search round if
-// TAVILY_API_KEY is set -- and it can make up to 2 turns if the first one found named parts
-// but gave no usable material/estimate/weight for any of them, so worst case is closer to
-// 80s) -- slightly longer than that, so the server's own clearer timeout message wins in the
-// normal case and this is just a last resort.
+// Backstop in case the server itself stalls (not just the AI service, which the server
+// already times out on its own end after 45s per "turn" -- a turn can itself include a web
+// search round if TAVILY_API_KEY is set -- and it can make up to 2 turns if the first one
+// found named parts but gave no usable material/estimate/weight for any of them, so worst
+// case is closer to 90s) -- slightly longer than that, so the server's own clearer timeout
+// message wins in the normal case and this is just a last resort.
 async function fetchAiWithTimeout(url, options) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 100000);
@@ -1098,14 +1096,15 @@ async function extractPartsWithAI() {
 
   let ok, data;
   if (aiAttachedFile) {
-    startAiTimer('5-15s for documents, up to 80s if it needs to search the web or try a second attempt');
+    const isImage = aiAttachedFile.type.startsWith('image/');
+    startAiTimer(isImage ? '10-20s for images, up to 90s if it needs to search the web or try a second attempt' : '5-15s for documents, up to 90s if it needs to search the web or try a second attempt');
     const formData = new FormData();
     formData.append('file', aiAttachedFile);
     ({ ok, data } = await fetchAiWithTimeout('/api/ai-extract-parts-from-file', { method: 'POST', body: formData, credentials: 'same-origin' }));
   } else {
     const description = textarea.value.trim();
     if (!description) { status.textContent = 'Describe the product or attach a file first.'; return; }
-    startAiTimer('3-8s for text, up to 80s if it needs to search the web or try a second attempt');
+    startAiTimer('3-8s for text, up to 90s if it needs to search the web or try a second attempt');
     ({ ok, data } = await fetchAiWithTimeout('/api/ai-extract-parts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
