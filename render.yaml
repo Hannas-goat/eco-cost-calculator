@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: eco-cost-calculator
+    name: life-cycle-calculator
     runtime: node
     buildCommand: npm install
     startCommand: npm start

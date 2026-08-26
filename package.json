@@ -1,5 +1,5 @@
 {
-  "name": "eco-cost-calculator",
+  "name": "life-cycle-calculator",
   "version": "1.0.0",
   "description": "A Life Cycle Assessment (LCA) tool with optional accounts (Express + Turso) so builds can be saved to your account and accessed from any device.",
   "main": "server.js",

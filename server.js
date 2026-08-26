@@ -852,7 +852,7 @@ app.use((err, req, res, next) => {
 
 initDb()
   .then(() => {
-    app.listen(PORT, () => console.log(`Eco-Cost Calculator listening on port ${PORT}`));
+    app.listen(PORT, () => console.log(`Life Cycle Calculator listening on port ${PORT}`));
   })
   .catch((err) => {
     console.error('Failed to initialize database:', err);

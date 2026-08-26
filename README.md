@@ -1,4 +1,4 @@
-# Eco-Cost Calculator
+# Life Cycle Calculator
 
 A Life Cycle Assessment (LCA) tool: build a product once on the Home tab and
 every other tab — Carbon footprint, Water consumption, Energy used in
