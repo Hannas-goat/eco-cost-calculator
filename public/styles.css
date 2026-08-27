@@ -36,7 +36,7 @@ body {
 
 /* Top bar: brand (logo + title) on the left, account widget on the right --
    replaces the old full-bleed green hero band + h1 + subtitle. Plain surface
-   so the real logo (public/Logo.jpg) sets the visual tone instead of a
+   so the real logo (public/Logo.png) sets the visual tone instead of a
    fixed gradient fighting it. */
 .top-bar {
   position: relative;
@@ -61,7 +61,7 @@ body {
   text-overflow: ellipsis;
 }
 
-/* Logo slot: the real logo (public/Logo.jpg) -- sized large enough that the
+/* Logo slot: the real logo (public/Logo.png) -- sized large enough that the
    text baked into the badge design is actually legible (it's a detailed
    circular emblem, not a simple icon, so it needs real size to read). No
    background/border box: the logo is already a complete circular graphic on
