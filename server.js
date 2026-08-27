@@ -68,6 +68,15 @@ async function initDb() {
     password_hash TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
+  // Added after the users table already existed in production, so bring older
+  // databases up to date column-by-column rather than assuming a fresh CREATE TABLE ran.
+  const usersInfo = await db.execute(`PRAGMA table_info(users)`);
+  const existingCols = new Set(usersInfo.rows.map((r) => r.name));
+  for (const col of ['display_name', 'phone', 'company', 'position']) {
+    if (!existingCols.has(col)) {
+      await db.execute(`ALTER TABLE users ADD COLUMN "${col}" TEXT`);
+    }
+  }
   await db.execute(`CREATE TABLE IF NOT EXISTS scenarios (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -85,8 +94,32 @@ app.use(express.json());
 app.use(cookieParser());
 
 // --- Auth helpers ---
+const POSITION_OPTIONS = [
+  'Undergraduate student',
+  'Graduate student',
+  'Postdoctoral associate',
+  'Professor',
+  'Industry professional',
+  'Other',
+];
+
 function isValidEmail(email) {
   return typeof email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function isNonEmptyString(v) {
+  return typeof v === 'string' && v.trim().length > 0;
+}
+
+function toPublicUser(row) {
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.display_name,
+    phone: row.phone,
+    company: row.company,
+    position: row.position,
+  };
 }
 
 function signSession(user) {
@@ -125,9 +158,15 @@ const authLimiter = rateLimit({
 
 // --- Auth routes ---
 app.post('/api/signup', authLimiter, async (req, res) => {
-  const { email, password } = req.body || {};
+  const { email, password, displayName, phone, company, position } = req.body || {};
   if (!isValidEmail(email) || typeof password !== 'string' || password.length < 6) {
     return res.status(400).json({ error: 'Enter a valid email and a password of at least 6 characters.' });
+  }
+  if (!isNonEmptyString(displayName) || !isNonEmptyString(phone) || !isNonEmptyString(company)) {
+    return res.status(400).json({ error: 'Enter your preferred name, phone number, and company/institution.' });
+  }
+  if (!POSITION_OPTIONS.includes(position)) {
+    return res.status(400).json({ error: 'Choose a valid position from the list.' });
   }
   const existing = await db.execute({ sql: 'SELECT id FROM users WHERE email = ?', args: [email] });
   if (existing.rows.length) {
@@ -135,8 +174,11 @@ app.post('/api/signup', authLimiter, async (req, res) => {
   }
   const id = crypto.randomUUID();
   const passwordHash = await bcrypt.hash(password, 12);
-  await db.execute({ sql: 'INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)', args: [id, email, passwordHash] });
-  const user = { id, email };
+  await db.execute({
+    sql: 'INSERT INTO users (id, email, password_hash, display_name, phone, company, position) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    args: [id, email, passwordHash, displayName.trim(), phone.trim(), company.trim(), position],
+  });
+  const user = toPublicUser({ id, email, display_name: displayName.trim(), phone: phone.trim(), company: company.trim(), position });
   setSessionCookie(res, signSession(user));
   res.status(201).json({ user });
 });
@@ -146,11 +188,14 @@ app.post('/api/login', authLimiter, async (req, res) => {
   if (!isValidEmail(email) || typeof password !== 'string') {
     return res.status(400).json({ error: 'Enter your email and password.' });
   }
-  const result = await db.execute({ sql: 'SELECT id, email, password_hash FROM users WHERE email = ?', args: [email] });
+  const result = await db.execute({
+    sql: 'SELECT id, email, password_hash, display_name, phone, company, position FROM users WHERE email = ?',
+    args: [email],
+  });
   const row = result.rows[0];
   const ok = row && (await bcrypt.compare(password, row.password_hash));
   if (!ok) return res.status(401).json({ error: 'Incorrect email or password.' });
-  const user = { id: row.id, email: row.email };
+  const user = toPublicUser(row);
   setSessionCookie(res, signSession(user));
   res.json({ user });
 });
@@ -160,8 +205,18 @@ app.post('/api/logout', (req, res) => {
   res.status(204).end();
 });
 
-app.get('/api/me', requireAuth, (req, res) => {
-  res.json({ user: { id: req.userId, email: req.userEmail } });
+app.get('/api/me', requireAuth, async (req, res) => {
+  const result = await db.execute({
+    sql: 'SELECT id, email, display_name, phone, company, position FROM users WHERE id = ?',
+    args: [req.userId],
+  });
+  const row = result.rows[0];
+  if (!row) return res.status(401).json({ error: 'Session expired — please log in again.' });
+  res.json({ user: toPublicUser(row) });
+});
+
+app.get('/api/position-options', (req, res) => {
+  res.json({ options: POSITION_OPTIONS });
 });
 
 // --- Scenarios routes (all scoped to the signed-in user) ---

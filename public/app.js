@@ -1256,7 +1256,7 @@ function loadPreset(key) {
 }
 
 // --- Account: our own /api backend (Express + Turso), session via httpOnly cookie ---
-let currentUser = null; // { id, email } or null when signed out
+let currentUser = null; // { id, email, displayName, phone, company, position } or null when signed out
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -1282,10 +1282,20 @@ function renderAccountUI() {
   if (currentUser) document.getElementById('auth-user-email').textContent = currentUser.email;
 
   const toggle = document.getElementById('account-toggle-btn');
-  toggle.textContent = currentUser ? `👤 ${currentUser.email}` : '👤 Sign in';
+  toggle.textContent = currentUser ? `👤 ${currentUser.displayName || currentUser.email}` : '👤 Sign in';
+
+  document.getElementById('ac-signed-out').style.display = currentUser ? 'none' : '';
+  document.getElementById('ac-signed-in').style.display = currentUser ? '' : 'none';
+  if (currentUser) {
+    document.getElementById('ac-profile-name').textContent = currentUser.displayName || currentUser.email;
+    document.getElementById('ac-profile-email').textContent = currentUser.email;
+    document.getElementById('ac-profile-details').textContent =
+      [currentUser.position, currentUser.company].filter(Boolean).join(' · ');
+  }
 
   const hasLocalScenarios = loadLocalScenarios().length > 0;
   document.getElementById('auth-import-row').style.display = (currentUser && hasLocalScenarios) ? '' : 'none';
+  document.getElementById('ac-import-row').style.display = (currentUser && hasLocalScenarios) ? '' : 'none';
 
   document.getElementById('scenarios-storage-note').textContent = currentUser
     ? '(saved to your account)'
@@ -1307,25 +1317,54 @@ document.addEventListener('click', (e) => {
   if (corner && !corner.contains(e.target)) closeAccountMenu();
 });
 
+// Switches the Home-page account card between its Sign up / Log in forms; the corner
+// widget stays login-only (see goToSignup) so there's exactly one place to actually
+// create the detailed account profile.
+function setAuthCardMode(mode) {
+  const isSignup = mode === 'signup';
+  document.getElementById('ac-tab-signup').classList.toggle('active', isSignup);
+  document.getElementById('ac-tab-login').classList.toggle('active', !isSignup);
+  document.getElementById('ac-form-signup').style.display = isSignup ? '' : 'none';
+  document.getElementById('ac-form-login').style.display = isSignup ? 'none' : '';
+  document.getElementById('ac-message').textContent = '';
+}
+
+function goToSignup() {
+  closeAccountMenu();
+  showTab('home');
+  setAuthCardMode('signup');
+  document.getElementById('auth-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 async function authSignUp() {
-  const email = document.getElementById('auth-email').value.trim();
-  const password = document.getElementById('auth-password').value;
-  const msg = document.getElementById('auth-message');
-  if (!email || password.length < 6) { msg.textContent = 'Enter an email and a password of at least 6 characters.'; return; }
-  msg.textContent = 'Signing up…';
-  const { ok, data } = await api('/api/signup', { method: 'POST', body: { email, password } });
+  const displayName = document.getElementById('ac-name').value.trim();
+  const email = document.getElementById('ac-email').value.trim();
+  const password = document.getElementById('ac-password').value;
+  const phone = document.getElementById('ac-phone').value.trim();
+  const company = document.getElementById('ac-company').value.trim();
+  const position = document.getElementById('ac-position').value;
+  const msg = document.getElementById('ac-message');
+  if (!displayName || !email || !phone || !company || !position) {
+    msg.textContent = 'Fill in every field to create your account.';
+    return;
+  }
+  if (password.length < 6) {
+    msg.textContent = 'Password needs at least 6 characters.';
+    return;
+  }
+  msg.textContent = 'Creating your account…';
+  const { ok, data } = await api('/api/signup', { method: 'POST', body: { email, password, displayName, phone, company, position } });
   if (!ok) { msg.textContent = data.error || 'Sign up failed.'; return; }
   currentUser = data.user;
   msg.textContent = '';
   renderAccountUI();
-  closeAccountMenu();
   await renderScenarios();
 }
 
-async function authLogIn() {
-  const email = document.getElementById('auth-email').value.trim();
-  const password = document.getElementById('auth-password').value;
-  const msg = document.getElementById('auth-message');
+async function authLogIn(emailId = 'auth-email', passwordId = 'auth-password', msgId = 'auth-message') {
+  const email = document.getElementById(emailId).value.trim();
+  const password = document.getElementById(passwordId).value;
+  const msg = document.getElementById(msgId);
   if (!email || !password) { msg.textContent = 'Enter your email and password.'; return; }
   msg.textContent = 'Logging in…';
   const { ok, data } = await api('/api/login', { method: 'POST', body: { email, password } });

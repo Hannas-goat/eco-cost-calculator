@@ -127,6 +127,48 @@ body {
 .account-menu #auth-import-row { margin: 10px 0; }
 .account-menu .hint { margin: 4px 0 10px; }
 
+.link-btn {
+  display: block;
+  margin-top: 10px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--green-dark);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.link-btn:hover { color: var(--green); }
+
+/* Sign up / Log in pill toggle on the account card -- same filled-pill language as
+   the nav tabs, so the two interactive controls in the header/home area feel related. */
+.ac-toggle {
+  display: flex;
+  gap: 6px;
+  margin: 12px 0;
+}
+.ac-toggle-btn {
+  flex: 1;
+  background: var(--page-bg);
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.ac-toggle-btn:hover { color: var(--ink); }
+.ac-toggle-btn.active {
+  color: var(--green-dark);
+  background: var(--green-pale);
+  border-color: var(--green);
+}
+#ac-signed-in .hint { line-height: 1.6; }
+#ac-import-row { margin: 10px 0; }
+
 @media (max-width: 640px) {
   .top-bar { padding: 12px 16px; }
   .account-menu { right: -12px; width: calc(100vw - 32px); max-width: 320px; }
@@ -577,7 +619,7 @@ main {
 
 /* --- Print / "Save as PDF" report: hide chrome, show a clean data report --- */
 @media print {
-  .tabs, .preset-row, .add-form, .btn-remove, .export-row, #part-form, .account-corner { display: none !important; }
+  .tabs, .preset-row, .add-form, .btn-remove, .export-row, #part-form, .account-corner, #auth-card { display: none !important; }
   .currency-row select { display: none; }
   .tab-panel { display: block !important; animation: none !important; }
   .card { box-shadow: none; border: 1px solid #999; break-inside: avoid; }

@@ -19,16 +19,16 @@
     <button type="button" class="account-corner-toggle" id="account-toggle-btn" onclick="toggleAccountMenu()">👤 Sign in</button>
     <div class="account-menu" id="account-menu" style="display:none;">
       <div id="account-signed-out">
-        <p class="hint">Sign in to save your builds to your account and access them from any device. Without an account, builds are saved only in this browser.</p>
+        <p class="hint">Log in to save your builds to your account and access them from any device.</p>
         <form onsubmit="return false;">
           <input type="email" id="auth-email" placeholder="Email" autocomplete="email">
-          <input type="password" id="auth-password" placeholder="Password (min 6 characters)" autocomplete="current-password">
+          <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password">
           <div class="account-menu-actions">
-            <button type="button" class="btn-primary" onclick="authSignUp()">Sign up →</button>
-            <button type="button" class="btn-secondary" onclick="authLogIn()">Log in</button>
+            <button type="button" class="btn-primary" onclick="authLogIn()">Log in</button>
           </div>
         </form>
         <div id="auth-message" class="hint"></div>
+        <button type="button" class="link-btn" onclick="goToSignup()">New here? Create an account →</button>
       </div>
       <div id="account-signed-in" style="display:none;">
         <p class="hint">Signed in as <strong id="auth-user-email"></strong>. Your saved builds are stored on your account.</p>
@@ -199,6 +199,53 @@
         <div class="export-row">
           <button type="button" class="btn-secondary" onclick="exportCsv('eco', 'eco-cost-breakdown')">⬇ Export CSV</button>
         </div>
+      </div>
+    </section>
+
+    <section class="card" id="auth-card">
+      <h2>👤 Your account</h2>
+
+      <div id="ac-signed-out">
+        <p class="hint">Create an account to save your builds and reach them from any device — or log in if you already have one.</p>
+
+        <div class="ac-toggle">
+          <button type="button" class="ac-toggle-btn active" id="ac-tab-signup" onclick="setAuthCardMode('signup')">Sign up</button>
+          <button type="button" class="ac-toggle-btn" id="ac-tab-login" onclick="setAuthCardMode('login')">Log in</button>
+        </div>
+
+        <form id="ac-form-signup" class="add-form" onsubmit="return false;">
+          <input type="text" id="ac-name" placeholder="Preferred name" autocomplete="name">
+          <input type="email" id="ac-email" placeholder="Email" autocomplete="email">
+          <input type="password" id="ac-password" placeholder="Password (min 6 characters)" autocomplete="new-password">
+          <input type="tel" id="ac-phone" placeholder="Phone number" autocomplete="tel">
+          <input type="text" id="ac-company" placeholder="Company / institution" autocomplete="organization">
+          <select id="ac-position">
+            <option value="" disabled selected>Position…</option>
+            <option>Undergraduate student</option>
+            <option>Graduate student</option>
+            <option>Postdoctoral associate</option>
+            <option>Professor</option>
+            <option>Industry professional</option>
+            <option>Other</option>
+          </select>
+          <button type="button" class="btn-primary" onclick="authSignUp()">Create account →</button>
+        </form>
+
+        <form id="ac-form-login" class="add-form" style="display:none;" onsubmit="return false;">
+          <input type="email" id="ac-login-email" placeholder="Email" autocomplete="email">
+          <input type="password" id="ac-login-password" placeholder="Password" autocomplete="current-password">
+          <button type="button" class="btn-primary" onclick="authLogIn('ac-login-email','ac-login-password','ac-message')">Log in →</button>
+        </form>
+
+        <div id="ac-message" class="hint"></div>
+      </div>
+
+      <div id="ac-signed-in" style="display:none;">
+        <p class="hint">Signed in as <strong id="ac-profile-name"></strong> · <span id="ac-profile-email"></span><br><span id="ac-profile-details"></span></p>
+        <div id="ac-import-row" style="display:none;">
+          <button type="button" class="btn-secondary" onclick="importLocalScenarios()">⬆ Import builds saved in this browser</button>
+        </div>
+        <button type="button" class="btn-secondary" onclick="authLogOut()">Log out</button>
       </div>
     </section>
 
