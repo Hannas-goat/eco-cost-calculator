@@ -8,7 +8,16 @@
 </head>
 <body>
 
-<header class="site-header">
+<header class="top-bar">
+  <div class="top-bar-brand">
+    <span class="logo-slot">
+      <span class="logo-fallback" aria-hidden="true">🌱</span>
+      <img src="logo.png" alt="Life Cycle Calculator logo" class="logo-img" style="display:none;"
+           onload="this.style.display='block'; this.previousElementSibling.style.display='none';"
+           onerror="this.remove();">
+    </span>
+    <span class="top-bar-title">Life Cycle Calculator</span>
+  </div>
   <div class="account-corner" id="account-corner">
     <button type="button" class="account-corner-toggle" id="account-toggle-btn" onclick="toggleAccountMenu()">👤 Sign in</button>
     <div class="account-menu" id="account-menu" style="display:none;">
@@ -33,8 +42,6 @@
       </div>
     </div>
   </div>
-  <h1>🌱 Life Cycle Calculator</h1>
-  <p class="subtitle">Build a product from materials, processing, transport and end-of-life, and get a full Life Cycle Assessment breakdown using the single-indicator eco-costs method.</p>
 </header>
 
 <nav class="tabs">

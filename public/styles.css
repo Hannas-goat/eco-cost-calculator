@@ -34,29 +34,64 @@ body {
   line-height: 1.5;
 }
 
-.site-header {
+/* Top bar: brand (logo + title) on the left, account widget on the right --
+   replaces the old full-bleed green hero band + h1 + subtitle. Plain surface
+   so a future real logo (drop a public/logo.png in and it's picked up
+   automatically, see .logo-slot below) sets the visual tone instead of a
+   fixed gradient fighting it. */
+.top-bar {
   position: relative;
-  background: linear-gradient(135deg, var(--green-dark), var(--green));
-  color: #fff;
-  padding: 32px 24px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 14px 24px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--line);
 }
-.site-header h1 { margin: 0 0 8px; font-size: 28px; }
-.site-header .subtitle { margin: 0; max-width: 640px; margin-inline: auto; opacity: 0.92; font-size: 15px; }
+.top-bar-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.top-bar-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Logo slot: shows a leaf placeholder until public/logo.png exists, then
+   switches over automatically (see the img's onload/onerror in index.html) --
+   no code changes needed once a real logo file is added. */
+.logo-slot {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  background: var(--green-pale);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.logo-fallback { font-size: 22px; line-height: 1; }
+.logo-img { width: 100%; height: 100%; object-fit: contain; }
 
 /* Account: a compact corner widget instead of a page section, so it's reachable
-   from every tab without taking up content space. */
+   from every tab without taking up content space. Now a normal flex item in
+   .top-bar rather than absolutely positioned over a colored hero band. */
 .account-corner {
-  position: absolute;
-  top: 16px;
-  right: 24px;
+  position: relative;
   text-align: left;
   z-index: 40;
 }
 .account-corner-toggle {
-  background: rgba(255, 255, 255, 0.15);
-  color: #fff;
-  border: 1px solid rgba(255, 255, 255, 0.5);
+  background: var(--green-pale);
+  color: var(--green-dark);
+  border: 1px solid var(--line);
   border-radius: 999px;
   padding: 7px 14px;
   font-size: 13px;
@@ -66,8 +101,10 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
-.account-corner-toggle:hover { background: rgba(255, 255, 255, 0.28); }
+.account-corner-toggle:hover { background: #dcf0e2; transform: translateY(-1px); box-shadow: 0 3px 10px rgba(11, 11, 11, 0.08); }
+.account-corner-toggle:active { transform: translateY(0); }
 .account-menu {
   position: absolute;
   top: calc(100% + 8px);
@@ -76,7 +113,7 @@ body {
   background: var(--card-bg);
   color: var(--ink);
   border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(11, 11, 11, 0.25);
+  box-shadow: 0 10px 30px rgba(11, 11, 11, 0.18);
   padding: 16px;
   text-align: left;
 }
@@ -94,41 +131,60 @@ body {
 .account-menu .hint { margin: 4px 0 10px; }
 
 @media (max-width: 640px) {
-  .site-header { padding-top: 60px; }
-  .account-corner { top: 12px; right: 12px; left: 12px; text-align: right; }
-  .account-menu { left: 0; width: auto; }
+  .top-bar { padding: 12px 16px; }
+  .account-menu { right: -12px; width: calc(100vw - 32px); max-width: 320px; }
 }
 
+/* Nav tabs: equal-width flex items so they fill the bar edge-to-edge instead
+   of clustering to the left with empty space on the right, with a filled
+   pill-style active/hover state instead of a plain bottom border for a more
+   tactile, clickable feel. flex-basis (not a fixed width) lets them wrap to a
+   second row on narrow screens instead of squeezing unreadably. */
 .tabs {
   max-width: 1600px;
   margin: 0 auto;
-  padding: 14px 24px 0;
+  padding: 8px 16px;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: 6px;
+  background: var(--card-bg);
   border-bottom: 1px solid var(--line);
 }
 .tab-btn {
+  flex: 1 1 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   background: transparent;
   color: var(--ink-soft);
-  border: none;
-  border-bottom: 3px solid transparent;
-  border-radius: 0;
-  padding: 8px 12px 6px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 10px 12px;
   font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
 }
-.tab-btn:hover { color: var(--ink); background: var(--page-bg); }
-.tab-icon { margin-right: 6px; }
-.tab-btn.active { color: var(--ink); border-bottom-color: var(--tab-accent, var(--green)); }
+.tab-btn:hover { color: var(--ink); background: var(--page-bg); border-color: var(--line); transform: translateY(-1px); box-shadow: 0 3px 10px rgba(11, 11, 11, 0.06); }
+.tab-btn:active { transform: translateY(0); box-shadow: none; }
+.tab-icon { font-size: 15px; }
+.tab-btn.active {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--tab-accent, var(--green)) 12%, var(--card-bg));
+  border-color: color-mix(in srgb, var(--tab-accent, var(--green)) 35%, var(--line));
+  box-shadow: inset 0 -3px 0 var(--tab-accent, var(--green));
+}
 #tabbtn-home { --tab-accent: var(--tab-home); }
 #tabbtn-carbon { --tab-accent: var(--tab-carbon); }
 #tabbtn-water { --tab-accent: var(--tab-water); }
 #tabbtn-energy { --tab-accent: var(--tab-energy); }
 #tabbtn-recycled { --tab-accent: var(--tab-recycled); }
 #tabbtn-sensitivity { --tab-accent: var(--tab-sensitivity); }
+@media (prefers-reduced-motion: reduce) {
+  .tab-btn, .account-corner-toggle { transition: none; }
+  .tab-btn:hover, .account-corner-toggle:hover { transform: none; }
+}
 
 main {
   max-width: 1600px;
@@ -524,12 +580,12 @@ main {
 
 /* --- Print / "Save as PDF" report: hide chrome, show a clean data report --- */
 @media print {
-  .tabs, .preset-row, .add-form, .btn-remove, .export-row, #part-form { display: none !important; }
+  .tabs, .preset-row, .add-form, .btn-remove, .export-row, #part-form, .account-corner { display: none !important; }
   .currency-row select { display: none; }
   .tab-panel { display: block !important; animation: none !important; }
   .card { box-shadow: none; border: 1px solid #999; break-inside: avoid; }
   body { background: #fff; }
-  .site-header { background: none !important; color: #000 !important; padding: 0 0 12px; }
+  .top-bar { border-bottom: none; padding: 0 0 12px; }
   .data-sources summary { display: none; }
   .data-sources p { display: block !important; }
 }
