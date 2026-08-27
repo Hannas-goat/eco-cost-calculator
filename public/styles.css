@@ -61,18 +61,19 @@ body {
   text-overflow: ellipsis;
 }
 
-/* Logo slot: the real logo (public/Logo.jpg). */
+/* Logo slot: the real logo (public/Logo.jpg) -- sized large enough that the
+   text baked into the badge design is actually legible (it's a detailed
+   circular emblem, not a simple icon, so it needs real size to read). No
+   background/border box: the logo is already a complete circular graphic on
+   its own, so a square container behind it would just show through at the
+   corners. */
 .logo-slot {
-  width: 42px;
-  height: 42px;
+  width: 96px;
+  height: 96px;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 11px;
-  background: var(--green-pale);
-  border: 1px solid var(--line);
-  overflow: hidden;
 }
 .logo-img { width: 100%; height: 100%; object-fit: contain; }
 
