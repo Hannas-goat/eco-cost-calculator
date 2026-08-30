@@ -145,6 +145,28 @@
       <h2>🏗️ 1. Build your product</h2>
       <p class="hint">Add each part with its material and weight. Optionally add processing and end-of-life treatment per part, plus assembly energy and transport for the whole product.</p>
 
+      <details class="builder-section" id="project-details-section" open>
+        <summary>📋 Project details <span class="hint-inline">(goal &amp; scope, for your own reference and reports)</span></summary>
+        <form class="add-form" onsubmit="return false;">
+          <input type="text" id="proj-name" placeholder="Project name" oninput="updateProjectMeta()">
+          <input type="text" id="proj-team" placeholder="Team members (comma-separated)" oninput="updateProjectMeta()">
+          <label class="hint-inline" for="proj-start">Timeline</label>
+          <input type="date" id="proj-start" aria-label="Timeline start date" onchange="updateProjectMeta()">
+          <span class="hint-inline">to</span>
+          <input type="date" id="proj-end" aria-label="Timeline end date" onchange="updateProjectMeta()">
+          <select id="proj-boundary" aria-label="System boundary" onchange="updateProjectMeta()">
+            <option value="">System boundary…</option>
+            <option value="cradle-to-gate">Cradle to gate</option>
+            <option value="cradle-to-grave">Cradle to grave</option>
+            <option value="cradle-to-cradle">Cradle to cradle</option>
+          </select>
+        </form>
+        <textarea id="proj-goal" class="proj-goal-input" rows="2" placeholder="Project goal — what question is this assessment answering, and why?" oninput="updateProjectMeta()"></textarea>
+
+        <span class="hint-inline">Impact variables (select all that apply)</span>
+        <div class="impact-toggle-row" id="impact-toggle-row"></div>
+      </details>
+
       <div class="preset-row">
         <span class="hint" style="margin:0;">Try an example:</span>
         <button type="button" class="btn-ghost" onclick="loadPreset('feltTipPen')">Felt-tip pen</button>

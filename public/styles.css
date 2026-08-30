@@ -349,6 +349,39 @@ main {
 .builder-section .line-items, .builder-section .add-form { margin-top: 10px; }
 .builder-section > .hint-inline { margin-top: 10px; display: block; }
 
+.proj-goal-input {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13.5px;
+  background: var(--card-bg);
+  resize: vertical;
+}
+.proj-goal-input:focus { outline: 2px solid var(--green); outline-offset: 1px; }
+
+.impact-toggle-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.impact-toggle-btn {
+  background: var(--page-bg);
+  color: var(--ink-soft);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.impact-toggle-btn:hover { color: var(--ink); }
+.impact-toggle-btn.active {
+  color: var(--green-dark);
+  background: var(--green-pale);
+  border-color: var(--green);
+}
+
 .hint { color: var(--ink-soft); font-size: 13.5px; margin: 4px 0 12px; }
 .hint-inline { color: var(--ink-soft); font-size: 12.5px; font-weight: normal; }
 

@@ -3,11 +3,25 @@
 // carbon, water, energy, and recycled content all compute from it — Carbon /
 // Water / Energy / Recycled tabs are read-only breakdown views of this same
 // product, not separate data-entry tools.
-let product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [] };
+function defaultProjectMeta() {
+  return { name: '', goal: '', team: '', start: '', end: '', boundary: '', impactVariables: [] };
+}
+let product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [], meta: defaultProjectMeta() };
 let nextLineId = 1;
 let activePresetKey = null; // set when a preset is loaded, so we can show the validation check
 
 const SCENARIOS_KEY = 'ecocost_scenarios';
+
+// Multiple-choice impact variables for the project details section — order is fixed
+// display order, not a ranking.
+const IMPACT_VARIABLES = [
+  { id: 'water-pollution', label: 'Water pollution' },
+  { id: 'air-pollution', label: 'Air pollution' },
+  { id: 'waste-management', label: 'Waste management' },
+  { id: 'ghg-emissions', label: 'Greenhouse gas emissions' },
+  { id: 'energy-consumption', label: 'Energy consumption' },
+  { id: 'natural-resources', label: 'Natural resources' },
+];
 
 const METRICS = {
   ecoCost: { label: 'Eco-cost', unit: '€', digits: 2, prefix: true },
@@ -250,6 +264,42 @@ function updateMaterialPreview() {
     : '';
 }
 
+// --- Project details: goal & scope metadata, saved/loaded as part of the product
+// like everything else, but purely descriptive -- none of it feeds the eco-cost math. ---
+function updateProjectMeta() {
+  product.meta.name = document.getElementById('proj-name').value;
+  product.meta.goal = document.getElementById('proj-goal').value;
+  product.meta.team = document.getElementById('proj-team').value;
+  product.meta.start = document.getElementById('proj-start').value;
+  product.meta.end = document.getElementById('proj-end').value;
+  product.meta.boundary = document.getElementById('proj-boundary').value;
+  activePresetKey = null;
+}
+
+function populateProjectFields() {
+  document.getElementById('proj-name').value = product.meta.name || '';
+  document.getElementById('proj-goal').value = product.meta.goal || '';
+  document.getElementById('proj-team').value = product.meta.team || '';
+  document.getElementById('proj-start').value = product.meta.start || '';
+  document.getElementById('proj-end').value = product.meta.end || '';
+  document.getElementById('proj-boundary').value = product.meta.boundary || '';
+  renderImpactVariableToggles();
+}
+
+function renderImpactVariableToggles() {
+  document.getElementById('impact-toggle-row').innerHTML = IMPACT_VARIABLES.map(v => {
+    const active = product.meta.impactVariables.includes(v.id);
+    return `<button type="button" class="impact-toggle-btn${active ? ' active' : ''}" aria-pressed="${active}" onclick="toggleImpactVariable('${v.id}')">${v.label}</button>`;
+  }).join('');
+}
+
+function toggleImpactVariable(id) {
+  const i = product.meta.impactVariables.indexOf(id);
+  if (i === -1) product.meta.impactVariables.push(id); else product.meta.impactVariables.splice(i, 1);
+  activePresetKey = null;
+  renderImpactVariableToggles();
+}
+
 // --- Adding line items ---
 function addPart() {
   const name = document.getElementById('part-name').value.trim();
@@ -375,7 +425,7 @@ function totalPartsWeight(p = product) {
 }
 
 function clearProduct() {
-  product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [] };
+  product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [], meta: defaultProjectMeta() };
   activePresetKey = null;
   renderAll();
 }
@@ -1254,6 +1304,7 @@ function renderOverview(items) {
 
 // --- Rendering: master ---
 function renderAll() {
+  populateProjectFields();
   renderParts();
   renderAssembly();
   renderTransport();
@@ -1287,7 +1338,7 @@ function renderAll() {
 // --- Presets ---
 function loadPreset(key) {
   const preset = PRESET_EXAMPLES[key];
-  product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [] };
+  product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [], meta: defaultProjectMeta() };
   for (const p of preset.parts) {
     product.parts.push({
       id: nextLineId++, name: p.name, materialId: p.materialId, weight: p.weight,
@@ -1620,6 +1671,7 @@ async function loadScenario(id) {
   }
   product = loadedProduct;
   if (!product.tradeLines) product.tradeLines = []; // scenarios saved before this feature existed
+  if (!product.meta) product.meta = defaultProjectMeta(); // scenarios saved before this feature existed
   nextLineId = Math.max(1, ...[...product.parts, ...product.transportLegs, ...product.customLines, ...product.tradeLines].map(x => x.id + 1));
   activePresetKey = null;
   renderAll();
