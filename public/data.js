@@ -229,12 +229,11 @@ const CHEMICALS = [
   { id: 'benzoapyrene', casNumber: '50-32-8', name: 'Benzo(a)pyrene', category: 'PAHs', ecoCost: 3754, note: 'Human toxicity, cancer, lead substance (PAH-equivalent basis)' },
 ];
 
-// The three pencil-body examples are quick-start presets AND an automated correctness
-// check: their known totals are 7.90 / 2.80 / 1.95 (base case / case 1 / case 2). These
-// reference totals are eco-cost only — the carbon/water/energy/recycled figures are not
-// separately validated. The three CLT examples above them are a different kind of
-// preset entirely — illustrative methodology examples with no independently-published
-// total to check against (see the note above cltCase1).
+// All current presets (three CLT scenarios, two battery-electrode builds) are
+// illustrative methodology examples with no independently-published reference total to
+// check against -- see the note above cltCase1 and the one above the battery presets
+// below. renderPresetCheck() in app.js skips the validation box entirely when a
+// preset's expectedTotal is missing, which is true of everything here.
 const PRESET_EXAMPLES = {
   // Three CLT (cross-laminated timber) adhesive scenarios, per kg of finished panel
   // (functional unit chosen to line up directly with the given adhesive spread-rate/
@@ -287,20 +286,42 @@ const PRESET_EXAMPLES = {
     ],
     assembly: { energyId: 'elec-industrial-west', mjPerKg: 0.05 },
   },
-  pencilBodyBase: {
-    name: 'Pencil body — base case (Aluminium, landfill)',
-    expectedTotal: 7.90,
-    parts: [{ name: 'Body', materialId: 'al-trademix', weight: 4, processId: 'extrude-al', endOfLifeId: 'none' }],
+  // Two battery-electrode "standard procedure" builds, per kg of finished electrode/
+  // cell, using the existing Battery & capacitor materials category. Like the CLT
+  // examples above, neither has an expectedTotal -- the mass splits below are an
+  // illustrative representative composition (round numbers, not a specific published
+  // bill-of-materials for either chemistry), so there's no independently-published
+  // total to check against. Assembly/processing energy isn't added on top since it
+  // isn't separately sourced -- each material's own energyIn already carries its own
+  // embodied production energy. End-of-life is left unmodelled ('none') for the same
+  // reason: this app has no battery-specific recycling/landfill data, and inventing a
+  // credit would be a bigger unsourced claim than leaving it out.
+  batteryElectrodeActivatedCarbon: {
+    name: 'Battery electrode — case 1 (activated carbon)',
+    meta: {
+      boundary: 'cradle-to-gate',
+      goal: 'Standard-procedure electrode build for an activated-carbon electrochemical double-layer capacitor (EDLC/supercapacitor) electrode: activated carbon as the active material (both electrodes, symmetric), plus separator and electrolyte. The mass split (60% activated carbon / 5% separator / 35% electrolyte, per kg) is an illustrative representative composition, not a specific published bill-of-materials -- edit the part weights below to match your own measured cell.',
+      impactVariables: ['energy-consumption', 'ghg-emissions', 'natural-resources'],
+    },
+    parts: [
+      { name: 'Electrode (activated carbon)', materialId: 'activated-carbon-electrode', weight: 0.6 },
+      { name: 'Separator', materialId: 'battery-separator', weight: 0.05 },
+      { name: 'Electrolyte', materialId: 'battery-electrolyte', weight: 0.35 },
+    ],
   },
-  pencilBodyCase1: {
-    name: 'Pencil body — case 1 (bio-PE, incineration credit)',
-    expectedTotal: 2.80,
-    parts: [{ name: 'Body', materialId: 'bio-pe', weight: 15, processId: 'extrude-plastic-site', endOfLifeId: 'incin-bio-pe' }],
-  },
-  pencilBodyCase2: {
-    name: 'Pencil body — case 2 (Aluminium, closed-loop recycling)',
-    expectedTotal: 1.95,
-    parts: [{ name: 'Body', materialId: 'al-trademix', weight: 4, processId: 'extrude-al', endOfLifeId: 'recycle-al-closed' }],
+  batteryElectrodeLithiumIon: {
+    name: 'Battery electrode — case 2 (lithium-ion)',
+    meta: {
+      boundary: 'cradle-to-gate',
+      goal: 'Standard-procedure electrode build for a lithium-ion battery cell: graphite anode + NMC cathode, plus separator and electrolyte. The mass split (30% graphite anode / 35% NMC cathode / 5% separator / 30% electrolyte, per kg) is an illustrative representative composition, not a specific published bill-of-materials -- swap in the LFP cathode instead of NMC, or edit the part weights, to match your own cell.',
+      impactVariables: ['energy-consumption', 'ghg-emissions', 'natural-resources'],
+    },
+    parts: [
+      { name: 'Anode (graphite)', materialId: 'graphite-anode', weight: 0.30 },
+      { name: 'Cathode (NMC)', materialId: 'nmc-cathode', weight: 0.35 },
+      { name: 'Separator', materialId: 'battery-separator', weight: 0.05 },
+      { name: 'Electrolyte', materialId: 'battery-electrolyte', weight: 0.30 },
+    ],
   },
 };
 
