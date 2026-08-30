@@ -110,6 +110,18 @@ async function initDb() {
   if (!materialsInfo.rows.some((r) => r.name === 'data_types')) {
     await db.execute(`ALTER TABLE custom_materials ADD COLUMN data_types TEXT NOT NULL DEFAULT '[]'`);
   }
+  // User-uploaded chemicals (the "Chemicals used" builder section) -- eco_cost here is
+  // EUR per kg of the substance itself, standardized the same way as custom_materials.
+  await db.execute(`CREATE TABLE IF NOT EXISTS custom_chemicals (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    cas_number TEXT,
+    category TEXT NOT NULL DEFAULT 'My chemicals',
+    name TEXT NOT NULL,
+    eco_cost REAL NOT NULL,
+    source_unit_system TEXT NOT NULL DEFAULT 'metric',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
 }
 
 const app = express();
@@ -521,6 +533,130 @@ app.delete('/api/database/materials/:id', requireAuth, async (req, res) => {
 
 app.delete('/api/database/materials', requireAuth, async (req, res) => {
   await db.execute({ sql: 'DELETE FROM custom_materials WHERE user_id = ?', args: [req.userId] });
+  res.status(204).end();
+});
+
+// --- Chemicals used: same upload/standardize pipeline as materials above (same
+// rowsFromFile/parseNum/normalizeUnitSystem helpers), but a distinct shape -- a CAS
+// number instead of co2e/water/energyIn/recycledPct, since these are toxicity eco-costs
+// (EUR per kg of the substance itself), not per-kg-of-material physical impact figures.
+const CHEMICAL_FIELD_SYNONYMS = {
+  name: ['chemicalname', 'substancename', 'chemical', 'substance', 'name'],
+  casNumber: ['casnumber', 'casrn', 'casno', 'cas'],
+  category: ['category', 'type', 'group', 'class'],
+  ecoCost: ['ecocost', 'toxicityfactor', 'ecofactor', 'cost', 'price'],
+  unit: ['unitsystem', 'units', 'unit', 'basis'],
+};
+const CHEMICAL_HEADER_SYNONYM_PAIRS = Object.entries(CHEMICAL_FIELD_SYNONYMS)
+  .flatMap(([field, synonyms]) => synonyms.map((synonym) => ({ field, synonym })))
+  .sort((a, b) => b.synonym.length - a.synonym.length);
+
+function matchChemicalHeaderField(normalizedHeader) {
+  const hit = CHEMICAL_HEADER_SYNONYM_PAIRS.find((p) => normalizedHeader.includes(p.synonym));
+  return hit ? hit.field : null;
+}
+
+function standardizeChemicalRow(rawRow, defaultUnitSystem) {
+  const mapped = {};
+  for (const [header, value] of Object.entries(rawRow)) {
+    const field = matchChemicalHeaderField(normalizeHeader(header));
+    if (field && mapped[field] === undefined) mapped[field] = value;
+  }
+
+  const name = String(mapped.name || '').trim();
+  if (!name) return { skipped: 'no chemical/substance name column found' };
+
+  const ecoCost = parseNum(mapped.ecoCost);
+  if (ecoCost == null) return { skipped: 'no numeric eco-cost/toxicity-factor value found' };
+
+  const unitSystem = normalizeUnitSystem(mapped.unit) || defaultUnitSystem;
+  const massFactor = unitSystem === 'us' ? LB_PER_KG : 1;
+
+  return {
+    row: {
+      name,
+      casNumber: String(mapped.casNumber || '').trim() || null,
+      category: String(mapped.category || '').trim() || 'My chemicals',
+      ecoCost: ecoCost * massFactor,
+      sourceUnitSystem: unitSystem,
+    },
+  };
+}
+
+function toPublicCustomChemical(row) {
+  return {
+    id: row.id,
+    casNumber: row.cas_number,
+    category: row.category,
+    name: row.name,
+    ecoCost: row.eco_cost,
+    sourceUnitSystem: row.source_unit_system,
+  };
+}
+
+app.post('/api/database/chemicals/upload', requireAuth, dbUpload.single('file'), async (req, res) => {
+  const file = req.file;
+  if (!file) return res.status(400).json({ error: 'No file was uploaded.' });
+
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  if (!['.csv', '.txt', '.xlsx', '.xls'].includes(ext)) {
+    return res.status(400).json({ error: `Unsupported file type "${ext || file.mimetype}". Upload a .csv, .txt, .xlsx, or .xls file.` });
+  }
+  const defaultUnitSystem = normalizeUnitSystem(req.body.unitSystem) || 'metric';
+
+  let rawRows;
+  try {
+    rawRows = rowsFromFile(file.buffer, ext);
+  } catch (e) {
+    return res.status(400).json({ error: `Could not read that file: ${e.message}` });
+  }
+  if (!rawRows.length) return res.status(400).json({ error: 'No rows were found in that file.' });
+
+  const truncated = rawRows.length > MAX_DATABASE_ROWS_PER_UPLOAD;
+  const usableRows = rawRows.slice(0, MAX_DATABASE_ROWS_PER_UPLOAD);
+
+  const warnings = [];
+  if (truncated) {
+    warnings.push(`Only the first ${MAX_DATABASE_ROWS_PER_UPLOAD} rows were processed (file had ${rawRows.length}).`);
+  }
+
+  const inserted = [];
+  for (const [i, rawRow] of usableRows.entries()) {
+    const { row, skipped } = standardizeChemicalRow(rawRow, defaultUnitSystem);
+    if (skipped) {
+      warnings.push(`Row ${i + 2}: skipped (${skipped}).`);
+      continue;
+    }
+    const id = crypto.randomUUID();
+    await db.execute({
+      sql: `INSERT INTO custom_chemicals (id, user_id, cas_number, category, name, eco_cost, source_unit_system)
+            VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [id, req.userId, row.casNumber, row.category, row.name, row.ecoCost, row.sourceUnitSystem],
+    });
+    inserted.push({ id, ...row });
+  }
+
+  if (!inserted.length) {
+    return res.status(400).json({ error: 'No usable rows were found — need at least a name and one numeric eco-cost value per row.', warnings });
+  }
+  res.status(201).json({ inserted, warnings });
+});
+
+app.get('/api/database/chemicals', requireAuth, async (req, res) => {
+  const result = await db.execute({
+    sql: 'SELECT id, cas_number, category, name, eco_cost, source_unit_system FROM custom_chemicals WHERE user_id = ? ORDER BY created_at ASC',
+    args: [req.userId],
+  });
+  res.json({ chemicals: result.rows.map(toPublicCustomChemical) });
+});
+
+app.delete('/api/database/chemicals/:id', requireAuth, async (req, res) => {
+  await db.execute({ sql: 'DELETE FROM custom_chemicals WHERE id = ? AND user_id = ?', args: [req.params.id, req.userId] });
+  res.status(204).end();
+});
+
+app.delete('/api/database/chemicals', requireAuth, async (req, res) => {
+  await db.execute({ sql: 'DELETE FROM custom_chemicals WHERE user_id = ?', args: [req.userId] });
   res.status(204).end();
 });
 

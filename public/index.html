@@ -256,6 +256,18 @@
           <button type="button" class="btn-primary" onclick="addTradeLine()">Add trade line →</button>
         </form>
       </details>
+
+      <details class="builder-section" id="chemicals-details">
+        <summary>🧪 Chemicals used <span class="hint-inline">(toxicity, added into eco-cost — see the Database tab to add more chemicals)</span></summary>
+        <div id="chemicals-list" class="line-items"></div>
+        <form class="add-form" onsubmit="return false;">
+          <input type="text" id="chemical-name" list="chemical-datalist" placeholder="Type to search chemical…" autocomplete="off" oninput="updateChemicalPreview()">
+          <datalist id="chemical-datalist"></datalist>
+          <input type="number" id="chemical-quantity" placeholder="Quantity used (kg)" min="0" step="any">
+          <span class="hint-inline" id="chemical-preview"></span>
+          <button type="button" class="btn-primary" onclick="addChemicalUse()">Add chemical use →</button>
+        </form>
+      </details>
     </section>
 
     <section class="card" id="results-card">
@@ -341,6 +353,38 @@
       </table>
       <div class="export-row">
         <button type="button" class="btn-secondary" id="db-clear-btn" style="display:none;" onclick="clearCustomMaterials()">🗑 Clear all</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>🧪 Upload chemicals (toxicity)</h2>
+      <p class="hint">Upload chemical name, CAS number, category, and an eco-cost (a toxicity factor in EUR per kg of the <em>substance</em>, e.g. from ecocostsvalue.com or USEtox). A small starter set (Cadmium, Mercury, Benzo(a)pyrene) is built in — add whatever else your products actually use here. Everything you add shows up in the "Chemicals used" picker on the Home tab.</p>
+      <div id="chem-signed-out-notice" class="hint" style="display:none;">Sign in (top right, or the account card on the Home tab) to build your own chemical list — it's saved to your account.</div>
+
+      <form id="chem-upload-form" class="add-form" onsubmit="return false;">
+        <label class="btn-ghost" for="chem-file-input" style="cursor:pointer;">⬆ Choose file</label>
+        <input type="file" id="chem-file-input" accept=".csv,.txt,.xlsx,.xls" style="display:none;" onchange="handleChemicalFileSelect(event)">
+        <span class="hint-inline" id="chem-file-name">No file chosen (.csv, .txt, .xlsx, .xls)</span>
+        <select id="chem-source-units" aria-label="Units used in the uploaded file">
+          <option value="metric">File uses metric units (kg)</option>
+          <option value="us">File uses US units (lb)</option>
+        </select>
+        <button type="button" class="btn-primary" onclick="uploadChemicalFile()">Clean &amp; add to my chemicals →</button>
+      </form>
+      <div id="chem-upload-status" class="hint"></div>
+      <p class="hint-inline">Columns are matched flexibly — expected fields: chemical/substance name, CAS number, category, eco-cost (or "toxicity factor").</p>
+    </section>
+
+    <section class="card">
+      <h2>📋 Your chemicals</h2>
+      <p class="hint">Stored standardized to EUR/kg regardless of the source file. <span id="chem-count-note"></span></p>
+      <div id="chem-empty" class="hint">No custom chemicals yet — upload a file above to add your own.</div>
+      <table class="results-table" id="chem-table" style="display:none;">
+        <thead><tr><th>Name</th><th>CAS number</th><th>Category</th><th>Eco-cost</th><th></th></tr></thead>
+        <tbody id="chem-tbody"></tbody>
+      </table>
+      <div class="export-row">
+        <button type="button" class="btn-secondary" id="chem-clear-btn" style="display:none;" onclick="clearCustomChemicals()">🗑 Clear all</button>
       </div>
     </section>
 

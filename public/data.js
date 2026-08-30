@@ -170,6 +170,26 @@ const END_OF_LIFE = [
   { id: 'recycle-cu-closed', name: 'Recycling, closed loop: Copper (credit)', ecoCost: -4.76, co2e: -2.8, water: -140, energyIn: -15 },
 ];
 
+// Chemical toxicity eco-costs, for the "Chemicals used" section of the product builder.
+// ecoCost here is EUR per kg of the substance itself (not per kg of product), from
+// ecocostsvalue.com's Eco-costs 2024/2025 midpoint tables (USEtox 2, EF 3.1
+// characterization) -- the same source family as the ecoCost figures in MATERIALS
+// above, so it's on a consistent monetary basis and safe to add straight into the same
+// eco-cost total.
+//
+// This is intentionally a SMALL, high-confidence starter set, not a general chemical
+// database: CAS itself is a proprietary registry with no free bulk API and doesn't
+// publish toxicity data anyway (that lives in USEtox/ECHA/EPA, as separate scientific
+// databases), and ecocostsvalue.com's full substance tables are a large Excel download
+// we don't have programmatic access to. These three are each individually confirmed,
+// published "lead substance" reference values for their impact category. Add anything
+// else you need via the Database tab -- same pattern as custom materials.
+const CHEMICALS = [
+  { id: 'cadmium', casNumber: '7440-43-9', name: 'Cadmium', category: 'Heavy metals', ecoCost: 1950, note: 'Freshwater ecotoxicity lead substance (USEtox 2 / EF 3.1)' },
+  { id: 'mercury', casNumber: '7439-97-6', name: 'Mercury', category: 'Heavy metals', ecoCost: 27560, note: 'Human toxicity, non-cancer, lead substance' },
+  { id: 'benzoapyrene', casNumber: '50-32-8', name: 'Benzo(a)pyrene', category: 'PAHs', ecoCost: 3754, note: 'Human toxicity, cancer, lead substance (PAH-equivalent basis)' },
+];
+
 // Two fully worked examples, used both as quick-start presets and as an automated
 // correctness check: their known totals are 22.54 (pen) and 7.90 / 2.80 / 1.95
 // (pencil body base case / case 1 / case 2). These reference totals are eco-cost
@@ -221,5 +241,5 @@ const PRESET_EXAMPLES = {
 // the AI-extraction endpoint reuse the exact same material/process/EoL names
 // instead of duplicating this list server-side and risking it drifting out of sync.
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { COUNTRIES, MATERIALS, PROCESSES, ENERGY, TRANSPORT, END_OF_LIFE, PRESET_EXAMPLES };
+  module.exports = { COUNTRIES, MATERIALS, PROCESSES, ENERGY, TRANSPORT, END_OF_LIFE, CHEMICALS, PRESET_EXAMPLES };
 }

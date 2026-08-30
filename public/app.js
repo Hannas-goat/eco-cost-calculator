@@ -6,7 +6,7 @@
 function defaultProjectMeta() {
   return { name: '', goal: '', team: '', start: '', end: '', boundary: '', impactVariables: [] };
 }
-let product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [], meta: defaultProjectMeta() };
+let product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [], chemicals: [], meta: defaultProjectMeta() };
 let nextLineId = 1;
 let activePresetKey = null; // set when a preset is loaded, so we can show the validation check
 
@@ -228,6 +228,7 @@ function initDropdowns() {
   document.getElementById('part-category').innerHTML = categories.map(c => `<option value="${c}">${c}</option>`).join('');
   if (categories.includes(prevCategory)) document.getElementById('part-category').value = prevCategory;
   renderMaterialOptions();
+  renderChemicalOptions();
 
   refreshRateLabels();
 
@@ -262,6 +263,37 @@ function updateMaterialPreview() {
   el.textContent = material
     ? `${fmtCurrencyRate(material.ecoCost, 'kg')} · ${material.co2e} kg CO2e/kg · ${material.water} L/kg · ${material.energyIn} kWh/kg · ${material.recycledPct}% recycled`
     : '';
+}
+
+// Searchable chemical combobox, same text-input + <datalist> pattern as the material
+// picker above -- unfiltered by category since the chemical list is much smaller.
+function renderChemicalOptions() {
+  document.getElementById('chemical-datalist').innerHTML = CHEMICALS.map(c => `<option value="${c.name}">`).join('');
+}
+
+function updateChemicalPreview() {
+  const el = document.getElementById('chemical-preview');
+  const name = document.getElementById('chemical-name').value.trim();
+  const chemical = CHEMICALS.find(c => c.name === name);
+  el.textContent = chemical
+    ? `${fmtCurrencyRate(chemical.ecoCost, 'kg substance')}${chemical.casNumber ? ` · CAS ${chemical.casNumber}` : ''}`
+    : '';
+}
+
+function addChemicalUse() {
+  const name = document.getElementById('chemical-name').value.trim();
+  const chemical = CHEMICALS.find(c => c.name === name);
+  const quantity = Number(document.getElementById('chemical-quantity').value);
+  if (!chemical || !quantity || quantity <= 0) {
+    alert('Pick a chemical from the list (type to search) and a positive quantity.');
+    return;
+  }
+  product.chemicals.push({ id: nextLineId++, chemicalId: chemical.id, quantity });
+  document.getElementById('chemical-name').value = '';
+  document.getElementById('chemical-quantity').value = '';
+  updateChemicalPreview();
+  activePresetKey = null;
+  renderAll();
 }
 
 // --- Project details: goal & scope metadata, saved/loaded as part of the product
@@ -410,6 +442,7 @@ function removeLine(kind, id) {
   if (kind === 'transport') product.transportLegs = product.transportLegs.filter(t => t.id !== id);
   if (kind === 'custom') product.customLines = product.customLines.filter(c => c.id !== id);
   if (kind === 'trade') product.tradeLines = product.tradeLines.filter(t => t.id !== id);
+  if (kind === 'chemical') product.chemicals = product.chemicals.filter(c => c.id !== id);
   activePresetKey = null;
   renderAll();
 }
@@ -425,7 +458,7 @@ function totalPartsWeight(p = product) {
 }
 
 function clearProduct() {
-  product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [], meta: defaultProjectMeta() };
+  product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [], chemicals: [], meta: defaultProjectMeta() };
   activePresetKey = null;
   renderAll();
 }
@@ -544,6 +577,26 @@ function computeLineItems(p = product) {
     });
   }
 
+  // (p.chemicals || []) — scenarios saved before this feature existed won't have this
+  // field at all. Chemical eco-costs are monetized toxicity figures (EUR/kg of
+  // substance) with no separate physical CO2e/water/energy basis in this dataset, so
+  // they only ever add to ecoCost, same as trade lines above.
+  for (const use of (p.chemicals || [])) {
+    const chemical = findById(CHEMICALS, use.chemicalId);
+    if (!chemical) continue; // the chemical was removed from the catalog since this was added
+    const detail = `${fmt(use.quantity, 4)} kg × ${chemical.name} (${fmtCurrencyRate(chemical.ecoCost, 'kg substance')})` +
+      `${chemical.casNumber ? ` — CAS ${chemical.casNumber}` : ''} — monetized toxicity eco-cost only, no separate CO2e/water/energy figures in this dataset`;
+    items.push({
+      label: `Chemical: ${chemical.name}`,
+      details: { ecoCost: detail, co2e: detail, water: detail, energyIn: detail },
+      kind: 'chemical',
+      ecoCost: use.quantity * chemical.ecoCost,
+      co2e: 0,
+      water: 0,
+      energyIn: 0,
+    });
+  }
+
   return items;
 }
 
@@ -633,6 +686,18 @@ function renderTradeLines() {
     ? product.tradeLines.map(t => lineItemRow('trade', t.id, `Made in ${t.madeIn}`,
         `Imported from ${t.importedFrom} (${fmtMetric(t.importCost, 'ecoCost')}) · Exported to ${t.exportedTo} (${fmtMetric(t.exportCost, 'ecoCost')})`)).join('')
     : '<p class="hint">No trade lines yet.</p>';
+}
+
+function renderChemicals() {
+  const el = document.getElementById('chemicals-list');
+  openDetailsIfContent('chemicals-details', product.chemicals.length > 0);
+  el.innerHTML = product.chemicals.length
+    ? product.chemicals.map(c => {
+        const chemical = findById(CHEMICALS, c.chemicalId);
+        return lineItemRow('chemical', c.id, chemical ? chemical.name : '(removed chemical)',
+          chemical ? `${fmt(c.quantity, 4)} kg · ${fmtMetric(c.quantity * chemical.ecoCost, 'ecoCost')}` : `${fmt(c.quantity, 4)} kg`);
+      }).join('')
+    : '<p class="hint">No chemicals added yet.</p>';
 }
 
 // Custom-line eco-cost placeholder follows the selected currency, so the input itself
@@ -870,6 +935,10 @@ function sensitivityTargets() {
   });
   product.customLines.forEach(c => targets.push({ id: `custom:${c.id}`, label: `Custom: ${c.name}` }));
   product.tradeLines.forEach(t => targets.push({ id: `trade:${t.id}`, label: `Trade: made in ${t.madeIn} (import + export cost)` }));
+  product.chemicals.forEach(c => {
+    const chemical = findById(CHEMICALS, c.chemicalId);
+    if (chemical) targets.push({ id: `chemical:${c.id}`, label: `Chemical: ${chemical.name} (quantity)` });
+  });
   return targets;
 }
 
@@ -912,6 +981,9 @@ function buildScaledProduct(targetId, factor) {
       t.importCost = (t.importCost || 0) * factor;
       t.exportCost = (t.exportCost || 0) * factor;
     }
+  } else if (type === 'chemical') {
+    const c = clone.chemicals.find(x => x.id === id);
+    if (c) c.quantity *= factor;
   }
   return clone;
 }
@@ -1310,6 +1382,7 @@ function renderAll() {
   renderTransport();
   renderCustom();
   renderTradeLines();
+  renderChemicals();
 
   const items = computeLineItems();
   renderOverview(items);
@@ -1338,7 +1411,7 @@ function renderAll() {
 // --- Presets ---
 function loadPreset(key) {
   const preset = PRESET_EXAMPLES[key];
-  product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [], meta: defaultProjectMeta() };
+  product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [], chemicals: [], meta: defaultProjectMeta() };
   for (const p of preset.parts) {
     product.parts.push({
       id: nextLineId++, name: p.name, materialId: p.materialId, weight: p.weight,
@@ -1463,7 +1536,7 @@ async function authSignUp() {
   currentUser = data.user;
   msg.textContent = '';
   renderAccountUI();
-  await Promise.all([renderScenarios(), loadCustomMaterials()]);
+  await Promise.all([renderScenarios(), loadCustomMaterials(), loadCustomChemicals()]);
 }
 
 async function authLogIn(emailId = 'auth-email', passwordId = 'auth-password', msgId = 'auth-message') {
@@ -1478,7 +1551,7 @@ async function authLogIn(emailId = 'auth-email', passwordId = 'auth-password', m
   msg.textContent = '';
   renderAccountUI();
   closeAccountMenu();
-  await Promise.all([renderScenarios(), loadCustomMaterials()]);
+  await Promise.all([renderScenarios(), loadCustomMaterials(), loadCustomChemicals()]);
 }
 
 async function authLogOut() {
@@ -1486,7 +1559,7 @@ async function authLogOut() {
   closeAccountMenu();
   currentUser = null;
   renderAccountUI();
-  await Promise.all([renderScenarios(), loadCustomMaterials()]);
+  await Promise.all([renderScenarios(), loadCustomMaterials(), loadCustomChemicals()]);
 }
 
 async function importLocalScenarios() {
@@ -1642,6 +1715,115 @@ function renderCustomMaterialsTable() {
     </tr>`).join('');
 }
 
+// --- Chemicals: same shape as the custom-materials block above, merged into the
+// CHEMICALS catalog (data.js) instead of MATERIALS. ---
+let customChemicals = [];
+
+function applyCustomChemicalsToCatalog(list) {
+  for (let i = CHEMICALS.length - 1; i >= 0; i--) {
+    if (CHEMICALS[i].id.startsWith('custom-')) CHEMICALS.splice(i, 1);
+  }
+  for (const c of list) {
+    CHEMICALS.push({
+      id: `custom-${c.id}`,
+      casNumber: c.casNumber || null,
+      category: c.category || 'My chemicals',
+      name: c.name,
+      ecoCost: c.ecoCost ?? 0,
+    });
+  }
+  initDropdowns();
+}
+
+async function loadCustomChemicals() {
+  if (!currentUser) {
+    customChemicals = [];
+    applyCustomChemicalsToCatalog([]);
+    renderCustomChemicalsTable();
+    return;
+  }
+  const { ok, data } = await api('/api/database/chemicals');
+  customChemicals = ok ? data.chemicals : [];
+  applyCustomChemicalsToCatalog(customChemicals);
+  renderCustomChemicalsTable();
+}
+
+function handleChemicalFileSelect(event) {
+  const file = event.target.files[0];
+  document.getElementById('chem-file-name').textContent = file ? file.name : 'No file chosen (.csv, .txt, .xlsx, .xls)';
+}
+
+async function uploadChemicalFile() {
+  const status = document.getElementById('chem-upload-status');
+  if (!currentUser) { status.textContent = 'Sign in first — your chemicals are saved to your account.'; return; }
+  const fileInput = document.getElementById('chem-file-input');
+  const file = fileInput.files[0];
+  if (!file) { status.textContent = 'Choose a file first.'; return; }
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('unitSystem', document.getElementById('chem-source-units').value);
+
+  status.textContent = 'Uploading and cleaning…';
+  const res = await fetch('/api/database/chemicals/upload', { method: 'POST', body: formData, credentials: 'same-origin' });
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* no JSON body */ }
+
+  if (!res.ok) {
+    status.textContent = data.error || 'Upload failed.';
+    return;
+  }
+  const warnings = data.warnings || [];
+  status.innerHTML = `Added ${data.inserted.length} chemical(s).` +
+    (warnings.length ? `<br>${warnings.map(w => `⚠ ${w}`).join('<br>')}` : '');
+  fileInput.value = '';
+  document.getElementById('chem-file-name').textContent = 'No file chosen (.csv, .txt, .xlsx, .xls)';
+  await loadCustomChemicals();
+}
+
+async function deleteCustomChemical(id) {
+  await api(`/api/database/chemicals/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  await loadCustomChemicals();
+}
+
+async function clearCustomChemicals() {
+  if (!confirm('Remove every chemical you added? This cannot be undone.')) return;
+  await api('/api/database/chemicals', { method: 'DELETE' });
+  await loadCustomChemicals();
+}
+
+function renderCustomChemicalsTable() {
+  const notice = document.getElementById('chem-signed-out-notice');
+  const empty = document.getElementById('chem-empty');
+  const table = document.getElementById('chem-table');
+  const clearBtn = document.getElementById('chem-clear-btn');
+  const countNote = document.getElementById('chem-count-note');
+  if (!notice || !empty || !table) return; // not on the Database tab yet on first paint
+
+  notice.style.display = currentUser ? 'none' : '';
+
+  if (!customChemicals.length) {
+    empty.style.display = '';
+    table.style.display = 'none';
+    clearBtn.style.display = 'none';
+    countNote.textContent = '';
+    return;
+  }
+  empty.style.display = 'none';
+  table.style.display = '';
+  clearBtn.style.display = '';
+  countNote.textContent = `${customChemicals.length} chemical(s) added.`;
+
+  document.getElementById('chem-tbody').innerHTML = customChemicals.map(c => `
+    <tr>
+      <td>${c.name}</td>
+      <td class="detail-cell">${c.casNumber || '—'}</td>
+      <td class="detail-cell">${c.category}</td>
+      <td class="num">${fmtCurrencyRate(c.ecoCost, 'kg')}</td>
+      <td><button type="button" class="btn-remove" onclick="deleteCustomChemical('${c.id}')">✕</button></td>
+    </tr>`).join('');
+}
+
 // --- Scenarios: our /api backend when signed in, localStorage otherwise ---
 function loadLocalScenarios() {
   try { return JSON.parse(localStorage.getItem(SCENARIOS_KEY) || '[]'); } catch (e) { return []; }
@@ -1693,8 +1875,9 @@ async function loadScenario(id) {
   }
   product = loadedProduct;
   if (!product.tradeLines) product.tradeLines = []; // scenarios saved before this feature existed
+  if (!product.chemicals) product.chemicals = []; // scenarios saved before this feature existed
   if (!product.meta) product.meta = defaultProjectMeta(); // scenarios saved before this feature existed
-  nextLineId = Math.max(1, ...[...product.parts, ...product.transportLegs, ...product.customLines, ...product.tradeLines].map(x => x.id + 1));
+  nextLineId = Math.max(1, ...[...product.parts, ...product.transportLegs, ...product.customLines, ...product.tradeLines, ...product.chemicals].map(x => x.id + 1));
   activePresetKey = null;
   renderAll();
   showTab('home');
@@ -1761,5 +1944,5 @@ ensureExchangeRates().then(() => {
 });
 renderAll();
 renderAccountUI();
-refreshCurrentUser().then(() => Promise.all([renderScenarios(), loadCustomMaterials()]));
+refreshCurrentUser().then(() => Promise.all([renderScenarios(), loadCustomMaterials(), loadCustomChemicals()]));
 showTab('home');
