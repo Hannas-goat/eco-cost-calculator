@@ -302,11 +302,14 @@
         <button type="button" class="btn-primary" onclick="saveScenario()">Save current product as scenario →</button>
       </form>
       <div id="scenarios-empty" class="hint">No scenarios saved yet.</div>
+      <p class="hint-inline">Check 2 or more scenarios below for a detailed bar comparison across every indicator — eco-cost there always shows in euros for a stable comparison, regardless of your currency display setting.</p>
       <table class="results-table" id="scenarios-table" style="display:none;">
-        <thead><tr><th>Scenario</th><th>Eco-cost</th><th>Carbon</th><th>Water</th><th>Energy</th><th>Recycled %</th><th></th></tr></thead>
+        <thead><tr><th>Compare</th><th>Scenario</th><th>Eco-cost</th><th>Carbon</th><th>Water</th><th>Energy</th><th>Recycled %</th><th></th></tr></thead>
         <tbody id="scenarios-tbody"></tbody>
       </table>
       <div id="scenarios-chart" class="chart"></div>
+
+      <div id="scenario-detail-compare"></div>
     </section>
 
   </section>

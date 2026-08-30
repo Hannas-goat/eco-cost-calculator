@@ -2978,6 +2978,55 @@ function scenarioTotals(s) {
   return s.totals || { ecoCost: s.total || 0, co2e: 0, water: 0, energyIn: 0 };
 }
 
+// Which saved scenarios are checked for the detailed multi-metric comparison below the
+// main chart -- kept here (not just in the checkboxes) since renderScenarios() rebuilds
+// the whole table's HTML on every call and would otherwise lose the checked state.
+let selectedScenarioIds = new Set();
+let lastScenariosList = [];
+
+function toggleScenarioCompareSelection(id, checked) {
+  if (checked) selectedScenarioIds.add(id); else selectedScenarioIds.delete(id);
+  renderScenarioDetailCompare();
+}
+
+// Eco-cost here is deliberately always euros (fmt(), not fmtMetric()) rather than
+// following the live currency selector -- the same "stable reference regardless of
+// display settings" reasoning already used for preset validation totals and CSV
+// exports elsewhere in this app, so two scenarios saved/viewed under different currency
+// selections still compare on the same footing. Carbon/water/energy still follow the
+// normal fmtMetric() (water follows the weight/water unit toggle; carbon and energy have
+// no toggle to begin with).
+function renderScenarioDetailCompare() {
+  const wrap = document.getElementById('scenario-detail-compare');
+  if (!wrap) return;
+  const selected = lastScenariosList.filter((s) => selectedScenarioIds.has(s.id));
+  if (selected.length < 2) {
+    wrap.innerHTML = selected.length === 1 ? '<p class="hint">Check at least one more scenario above to compare it against.</p>' : '';
+    return;
+  }
+  const metrics = [
+    { key: 'ecoCost', label: 'Eco-cost (always in euros, for a stable comparison)' },
+    { key: 'co2e', label: 'Carbon footprint' },
+    { key: 'water', label: 'Water consumption' },
+    { key: 'energyIn', label: 'Energy used in production' },
+  ];
+  wrap.innerHTML = `<h3>Detailed comparison</h3>` + metrics.map((m) => {
+    const rows = selected.map((s) => ({ label: s.name, value: s.totals[m.key] }));
+    const maxAbs = Math.max(...rows.map((r) => Math.abs(r.value)), 0.0001);
+    const bars = rows.map((r) => {
+      const pct = (Math.abs(r.value) / maxAbs) * 100;
+      const barClass = r.value < 0 ? 'bar-credit' : 'bar-burden';
+      const valueText = m.key === 'ecoCost' ? `€${fmt(r.value)}` : fmtMetric(r.value, m.key);
+      return `<div class="chart-row">
+        <span class="chart-label">${escapeXml(r.label)}</span>
+        <div class="chart-track"><div class="chart-bar ${barClass}" style="width:${pct}%"></div></div>
+        <span class="chart-value">${valueText}</span>
+      </div>`;
+    }).join('');
+    return `<h4>${m.label}</h4><div class="chart">${bars}</div>`;
+  }).join('');
+}
+
 async function renderScenarios() {
   let scenarios;
   if (currentUser) {
@@ -2987,6 +3036,9 @@ async function renderScenarios() {
     scenarios = loadLocalScenarios().map(s => ({ id: s.id, name: s.name, totals: scenarioTotals(s), recycledPct: s.recycledPct || 0 }));
   }
   refreshCompareCaseOptions(scenarios);
+  lastScenariosList = scenarios;
+  const validIds = new Set(scenarios.map((s) => s.id));
+  for (const id of [...selectedScenarioIds]) if (!validIds.has(id)) selectedScenarioIds.delete(id);
 
   const empty = document.getElementById('scenarios-empty');
   const table = document.getElementById('scenarios-table');
@@ -2995,6 +3047,7 @@ async function renderScenarios() {
     empty.style.display = '';
     table.style.display = 'none';
     chart.innerHTML = '';
+    renderScenarioDetailCompare();
     return;
   }
   empty.style.display = 'none';
@@ -3002,6 +3055,7 @@ async function renderScenarios() {
 
   document.getElementById('scenarios-tbody').innerHTML = scenarios.map(s => `
     <tr>
+      <td><input type="checkbox" ${selectedScenarioIds.has(s.id) ? 'checked' : ''} onchange="toggleScenarioCompareSelection('${s.id}', this.checked)" aria-label="Select ${s.name} for detailed comparison"></td>
       <td><a href="#" onclick="loadScenario('${s.id}'); return false;">${s.name}</a></td>
       <td class="num">${fmtMetric(s.totals.ecoCost, 'ecoCost')}</td>
       <td class="num">${fmtMetric(s.totals.co2e, 'co2e')}</td>
@@ -3022,6 +3076,8 @@ async function renderScenarios() {
       <span class="chart-value">€${fmt(total)}</span>
     </div>`;
   }).join('');
+
+  renderScenarioDetailCompare();
 }
 
 // --- Init ---
