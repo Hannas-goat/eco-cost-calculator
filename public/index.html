@@ -579,6 +579,39 @@
   <section id="tab-sensitivity" class="tab-panel" style="display:none;">
 
     <section class="card">
+      <h2>⚖️ Compare cases</h2>
+      <p class="hint">Compare the current build, your saved scenarios, and the built-in example presets side by side — every value below follows your currency and weight/water unit settings from the Home tab.</p>
+
+      <form class="add-form" onsubmit="return false;">
+        <select id="compare-case-select" aria-label="Case to add"></select>
+        <button type="button" class="btn-primary" onclick="addCompareCase()">Add to comparison →</button>
+      </form>
+
+      <div id="compare-cases-list" class="line-items"></div>
+
+      <div id="compare-empty" class="hint">Add at least 2 cases above to compare.</div>
+      <div id="compare-body" style="display:none;">
+        <table class="results-table" id="compare-table">
+          <thead><tr><th>Case</th><th>Eco-cost</th><th>Carbon</th><th>Water</th><th>Energy</th><th>Recycled %</th></tr></thead>
+          <tbody id="compare-tbody"></tbody>
+        </table>
+
+        <h3>Chart <span class="hint-inline">(pick which total to compare)</span></h3>
+        <select id="compare-chart-metric" onchange="renderCompareChart()">
+          <option value="ecoCost">Eco-cost</option>
+          <option value="co2e">Carbon footprint</option>
+          <option value="water">Water consumption</option>
+          <option value="energyIn">Energy used in production</option>
+        </select>
+        <div id="compare-chart" class="chart"></div>
+
+        <div class="export-row">
+          <button type="button" class="btn-secondary" onclick="sendCompareToStats()">📊 Send to statistical tests (Monte Carlo per case) →</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
       <h2>🌪️ Hotspot tornado — every input, ranked by impact</h2>
       <p class="hint">Every input from the product you build on Home, varied and ranked by how much it swings the chosen total — the widest bar (top) is the input most worth double-checking. The vertical line marks the product as actually built today.</p>
       <div id="tornado-empty" class="hint">Build a product on the Home tab first.</div>

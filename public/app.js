@@ -1209,6 +1209,161 @@ function renderSensitivityRanking(containerId, ranking) {
   }).join('');
 }
 
+// --- Compare cases: the current build, saved scenarios, and the built-in example
+// presets, side by side -- every value routes through fmtMetric()/fmt(), so the
+// comparison automatically follows the currency and weight/water unit settings on Home,
+// same as everywhere else in the app. ---
+
+// Builds a product object from a preset WITHOUT touching the global product/nextLineId/
+// activePresetKey the way loadPreset() does -- lets a preset's totals be computed here
+// non-destructively, alongside the current build and saved scenarios, without disturbing
+// whatever's actually on Home. Deliberately not sharing code with loadPreset() itself,
+// to avoid any risk of changing that already-verified function's behavior.
+function buildProductFromPreset(key) {
+  const preset = PRESET_EXAMPLES[key];
+  const p = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [], chemicals: [], meta: { ...defaultProjectMeta(), ...(preset.meta || {}) } };
+  let id = 1;
+  for (const part of preset.parts) {
+    p.parts.push({ id: id++, name: part.name, materialId: part.materialId, weight: part.weight, processId: part.processId || null, endOfLifeId: part.endOfLifeId || 'none' });
+  }
+  if (preset.assembly) p.assembly = { energyId: preset.assembly.energyId, mjPerKg: preset.assembly.mjPerKg };
+  if (preset.customLines) {
+    for (const c of preset.customLines) p.customLines.push({ id: id++, name: c.name, ecoCost: c.ecoCost, co2e: 0, water: 0, energyIn: 0 });
+  }
+  return p;
+}
+
+let compareCases = [];
+let nextCompareCaseId = 1;
+
+// Called from renderScenarios() with whatever it just fetched, so this never issues a
+// second, redundant scenarios request of its own.
+function refreshCompareCaseOptions(scenarios) {
+  const select = document.getElementById('compare-case-select');
+  if (!select) return;
+  const prevValue = select.value;
+  const presetOptions = Object.keys(PRESET_EXAMPLES).map((k) => `<option value="preset:${k}">${escapeXml(PRESET_EXAMPLES[k].name)}</option>`).join('');
+  const scenarioOptions = scenarios.map((s) => `<option value="scenario:${s.id}">${escapeXml(s.name)}</option>`).join('');
+  select.innerHTML = `
+    <option value="current">— Current build (Home tab) —</option>
+    <optgroup label="Example presets">${presetOptions}</optgroup>
+    ${scenarios.length ? `<optgroup label="Your saved scenarios">${scenarioOptions}</optgroup>` : ''}
+  `;
+  if ([...select.options].some((o) => o.value === prevValue)) select.value = prevValue;
+}
+
+async function addCompareCase() {
+  const value = document.getElementById('compare-case-select').value;
+  let label, prod;
+  if (value === 'current') {
+    label = 'Current build';
+    prod = product;
+  } else if (value.startsWith('preset:')) {
+    const key = value.slice('preset:'.length);
+    label = PRESET_EXAMPLES[key].name;
+    prod = buildProductFromPreset(key);
+  } else if (value.startsWith('scenario:')) {
+    const id = value.slice('scenario:'.length);
+    if (currentUser) {
+      const { ok, data } = await api(`/api/scenarios/${encodeURIComponent(id)}`);
+      if (!ok) { alert('Could not load that scenario.'); return; }
+      label = data.scenario.name;
+      prod = data.scenario.product;
+    } else {
+      const s = loadLocalScenarios().find((x) => x.id === id);
+      if (!s) return;
+      label = s.name;
+      prod = s.product;
+    }
+  } else {
+    return;
+  }
+  compareCases.push({ id: nextCompareCaseId++, label, product: prod });
+  renderCompareCasesList();
+  renderCompareTable();
+}
+
+function removeCompareCase(id) {
+  compareCases = compareCases.filter((c) => c.id !== id);
+  renderCompareCasesList();
+  renderCompareTable();
+}
+
+function renderCompareCasesList() {
+  const el = document.getElementById('compare-cases-list');
+  if (!el) return;
+  el.innerHTML = compareCases.map((c) => `
+    <div class="line-item">
+      <span class="line-item-label">${escapeXml(c.label)}</span>
+      <span class="line-item-detail"></span>
+      <button type="button" class="btn-remove" onclick="removeCompareCase(${c.id})">✕</button>
+    </div>`).join('');
+}
+
+function renderCompareTable() {
+  const empty = document.getElementById('compare-empty');
+  const body = document.getElementById('compare-body');
+  if (!empty || !body) return;
+  if (compareCases.length < 2) {
+    empty.style.display = '';
+    body.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  body.style.display = '';
+
+  document.getElementById('compare-tbody').innerHTML = compareCases.map((c) => {
+    const totals = totalsFor(computeLineItems(c.product));
+    const recycledPct = computeRecycledPct(c.product);
+    return `<tr>
+      <td>${escapeXml(c.label)}</td>
+      <td class="num">${fmtMetric(totals.ecoCost, 'ecoCost')}</td>
+      <td class="num">${fmtMetric(totals.co2e, 'co2e')}</td>
+      <td class="num">${fmtMetric(totals.water, 'water')}</td>
+      <td class="num">${fmtMetric(totals.energyIn, 'energyIn')}</td>
+      <td class="num">${fmt(recycledPct, 0)}%</td>
+    </tr>`;
+  }).join('');
+  renderCompareChart();
+}
+
+function renderCompareChart() {
+  const container = document.getElementById('compare-chart');
+  if (!container || compareCases.length < 2) return;
+  const metricKey = document.getElementById('compare-chart-metric').value;
+  const rows = compareCases.map((c) => ({ label: c.label, value: totalsFor(computeLineItems(c.product))[metricKey] }));
+  const maxAbs = Math.max(...rows.map((r) => Math.abs(r.value)), 0.0001);
+  container.innerHTML = rows.map((r) => {
+    const pct = (Math.abs(r.value) / maxAbs) * 100;
+    const barClass = r.value < 0 ? 'bar-credit' : 'bar-burden';
+    return `<div class="chart-row">
+      <span class="chart-label">${escapeXml(r.label)}</span>
+      <div class="chart-track"><div class="chart-bar ${barClass}" style="width:${pct}%"></div></div>
+      <span class="chart-value">${fmtMetric(r.value, metricKey)}</span>
+    </div>`;
+  }).join('');
+}
+
+// Runs a Monte Carlo simulation per compared case (same +-20%/200-iteration approach as
+// fillStatsFromScenarios below) and drops the samples straight into the statistics data
+// table, so a case comparison can go straight into a real hypothesis test or ANOVA
+// instead of just eyeballing point estimates.
+function sendCompareToStats() {
+  if (compareCases.length < 2) { alert('Add at least 2 cases to compare first.'); return; }
+  const n = 200, uncertainty = 0.2;
+  for (const c of compareCases) {
+    const targets = sensitivityTargets(c.product);
+    if (!targets.length) {
+      statsRows.push({ id: nextStatsRowId++, value: totalsFor(computeLineItems(c.product)).ecoCost, groupA: c.label, groupB: null });
+      continue;
+    }
+    const { totals } = simulateMonteCarloTotals(c.product, targets, 'ecoCost', uncertainty, n);
+    for (const v of totals) statsRows.push({ id: nextStatsRowId++, value: v, groupA: c.label, groupB: null });
+  }
+  renderStatsTable();
+  alert(`Added ${compareCases.length} case(s) to the statistics data table below (Eco-cost, ${n} Monte Carlo samples each at ±20% uncertainty where the case has inputs to vary) — scroll down to run a hypothesis test or ANOVA.`);
+}
+
 // --- Statistics: hypothesis testing, chi-square, one-way & two-way ANOVA ---
 // Real p-values, not decorative ones -- these need the actual t/chi-square/F CDFs, which
 // need the regularized incomplete beta and incomplete gamma functions (standard
@@ -2234,6 +2389,7 @@ function renderAll() {
   document.getElementById('sens-table').style.display = 'none';
   updateSensitivityEmptyStates();
   renderTornadoChart();
+  renderCompareTable();
 
   updateTransportPreview();
 }
@@ -2830,6 +2986,7 @@ async function renderScenarios() {
   } else {
     scenarios = loadLocalScenarios().map(s => ({ id: s.id, name: s.name, totals: scenarioTotals(s), recycledPct: s.recycledPct || 0 }));
   }
+  refreshCompareCaseOptions(scenarios);
 
   const empty = document.getElementById('scenarios-empty');
   const table = document.getElementById('scenarios-table');
