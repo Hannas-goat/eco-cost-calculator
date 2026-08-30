@@ -11,10 +11,14 @@
   --page-bg: #f4f8f5;
 
   /* Tab identity colors — categorical, fixed order, validated for CVD-safe adjacency
-     (dataviz skill palette slots 1-4 + 5; Home keeps the site's own green as its
-     brand color rather than joining this set). Always paired with a text label —
-     never the sole carrier of meaning. */
+     (dataviz skill palette slots 1-5; Home keeps the site's own green as its brand
+     color rather than joining this set). Database uses slot 7 (violet), skipping
+     slot 6 (green) since Home's brand green already occupies that hue in this nav —
+     re-validated as a full 7-color adjacent sequence including Home's green, all
+     checks pass. Always paired with a text label — never the sole carrier of
+     meaning. */
   --tab-home: var(--green);
+  --tab-database: #4a3aa7;
   --tab-carbon: #2a78d6;
   --tab-water: #eb6834;
   --tab-energy: #1baf7a;
@@ -215,6 +219,7 @@ body {
   box-shadow: inset 0 -3px 0 var(--tab-accent, var(--green));
 }
 #tabbtn-home { --tab-accent: var(--tab-home); }
+#tabbtn-database { --tab-accent: var(--tab-database); }
 #tabbtn-carbon { --tab-accent: var(--tab-carbon); }
 #tabbtn-water { --tab-accent: var(--tab-water); }
 #tabbtn-energy { --tab-accent: var(--tab-energy); }
@@ -255,7 +260,7 @@ main {
   align-items: start;
   gap: 24px;
 }
-#overview-card, #builder-card { grid-column: 1 / -1; }
+#overview-card, #auth-card, #builder-card { grid-column: 1 / -1; }
 @media (max-width: 860px) {
   #tab-home { grid-template-columns: 1fr; }
 }
@@ -619,7 +624,7 @@ main {
 
 /* --- Print / "Save as PDF" report: hide chrome, show a clean data report --- */
 @media print {
-  .tabs, .preset-row, .add-form, .btn-remove, .export-row, #part-form, .account-corner, #auth-card { display: none !important; }
+  .tabs, .preset-row, .add-form, .btn-remove, .export-row, #part-form, .account-corner, #auth-card, #tab-database { display: none !important; }
   .currency-row select { display: none; }
   .tab-panel { display: block !important; animation: none !important; }
   .card { box-shadow: none; border: 1px solid #999; break-inside: avoid; }

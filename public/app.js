@@ -113,14 +113,56 @@ function fmtMetric(n, key) {
     const rate = exchangeRates[currentCurrency] || 1;
     return `${cur.symbol}${fmt(n * rate, cur.digits)}`;
   }
+  if (key === 'water') return fmtWater(n);
   const cfg = METRICS[key];
   return `${fmt(n, cfg.digits)} ${cfg.unit}`;
 }
 
+// --- Units: weight and water are entered/stored internally in kilograms and liters
+// (that's the basis the reference data and the Database tab both use); everywhere
+// they're DISPLAYED can be switched to US customary, same pattern as currency above.
+const UNITS_KEY = 'ecocost_units';
+const LB_PER_KG = 2.2046226218;
+const GAL_PER_L = 0.2641720524;
+let currentUnitSystem = localStorage.getItem(UNITS_KEY) || 'metric';
+
+function changeUnitSystem() {
+  currentUnitSystem = document.getElementById('units-select').value;
+  localStorage.setItem(UNITS_KEY, currentUnitSystem);
+  refreshRateLabels();
+  renderAll();
+}
+
+function updateUnitsNote() {
+  const note = document.getElementById('units-note');
+  if (!note) return;
+  note.textContent = currentUnitSystem === 'metric'
+    ? 'Weight is entered and shown in kilograms, water in liters.'
+    : 'Weight is entered and shown in pounds, water in US gallons — stored internally in kilograms/liters so nothing is lost switching units.';
+}
+
+function updateWeightWaterPlaceholders() {
+  const weightInput = document.getElementById('part-weight');
+  if (weightInput) weightInput.placeholder = currentUnitSystem === 'metric' ? 'Weight (kg)' : 'Weight (lb)';
+  const waterInput = document.getElementById('custom-water');
+  if (waterInput) waterInput.placeholder = currentUnitSystem === 'metric' ? 'Water (L)' : 'Water (gal)';
+}
+
+function fmtWeight(kg) {
+  return currentUnitSystem === 'metric' ? `${fmt(kg)} kg` : `${fmt(kg * LB_PER_KG)} lb`;
+}
+
+function fmtWater(l) {
+  return currentUnitSystem === 'metric' ? `${fmt(l, 1)} L` : `${fmt(l * GAL_PER_L, 1)} gal`;
+}
+
+function weightInputToKg(v) { return currentUnitSystem === 'metric' ? v : v / LB_PER_KG; }
+function waterInputToL(v) { return currentUnitSystem === 'metric' ? v : v / GAL_PER_L; }
+
 function findById(list, id) { return list.find(x => x.id === id); }
 
 // --- Tabs ---
-const TABS = ['home', 'carbon', 'water', 'energy', 'recycled', 'sensitivity'];
+const TABS = ['home', 'database', 'carbon', 'water', 'energy', 'recycled', 'sensitivity'];
 
 function showTab(name) {
   for (const id of TABS) {
@@ -156,13 +198,21 @@ function refreshRateLabels() {
   transportSelect.value = prevTransport;
 
   updateCustomValuePlaceholder();
+  updateUnitsNote();
+  updateWeightWaterPlaceholders();
   updateMaterialPreview();
 }
 
 // --- Dropdown population ---
+// Re-run whenever MATERIALS changes shape (not just at startup) -- e.g. after
+// applyCustomMaterialsToCatalog() adds/removes a signed-in user's uploaded materials --
+// so preserve whatever category was already selected instead of always resetting to the
+// first one.
 function initDropdowns() {
+  const prevCategory = document.getElementById('part-category').value;
   const categories = [...new Set(MATERIALS.map(m => m.category))];
   document.getElementById('part-category').innerHTML = categories.map(c => `<option value="${c}">${c}</option>`).join('');
+  if (categories.includes(prevCategory)) document.getElementById('part-category').value = prevCategory;
   renderMaterialOptions();
 
   refreshRateLabels();
@@ -205,13 +255,14 @@ function addPart() {
   const name = document.getElementById('part-name').value.trim();
   const materialName = document.getElementById('part-material').value.trim();
   const material = MATERIALS.find(m => m.name === materialName);
-  const weight = Number(document.getElementById('part-weight').value);
+  const enteredWeight = Number(document.getElementById('part-weight').value);
   const processId = document.getElementById('part-process').value || null;
   const endOfLifeId = document.getElementById('part-eol').value || 'none';
-  if (!name || !material || !weight || weight <= 0) {
+  if (!name || !material || !enteredWeight || enteredWeight <= 0) {
     alert('Give the part a name, pick a material from the list (type to search), and a positive weight.');
     return;
   }
+  const weight = weightInputToKg(enteredWeight); // stored internally in kg, like the reference data
   product.parts.push({ id: nextLineId++, name, materialId: material.id, weight, processId, endOfLifeId });
   document.getElementById('part-form').reset();
   renderMaterialOptions();
@@ -265,7 +316,8 @@ function addCustomLine() {
   const enteredValue = Number(document.getElementById('custom-value').value) || 0;
   const ecoCost = enteredValue / (exchangeRates[currentCurrency] || 1);
   const co2e = Number(document.getElementById('custom-co2e').value) || 0;
-  const water = Number(document.getElementById('custom-water').value) || 0;
+  // Typed in the currently selected weight/water unit; stored internally in liters.
+  const water = waterInputToL(Number(document.getElementById('custom-water').value) || 0);
   const energyIn = Number(document.getElementById('custom-energy').value) || 0;
   if (!name || (!ecoCost && !co2e && !water && !energyIn)) {
     alert('Give the custom line a description and at least one value.');
@@ -339,7 +391,7 @@ function fmtRate(value, metricKey, basis) {
 function partDetails(part, material, process, eol) {
   const details = {};
   for (const metricKey of Object.keys(METRICS)) {
-    const bits = [`${part.weight} kg × ${material.name} (${fmtRate(material[metricKey], metricKey, 'kg')})`];
+    const bits = [`${fmtWeight(part.weight)} × ${material.name} (${fmtRate(material[metricKey], metricKey, 'kg')})`];
     if (process) bits.push(`+ ${process.name} (${fmtRate(process[metricKey], metricKey, 'kg')})`);
     if (eol && eol[metricKey] !== 0) bits.push(`+ ${eol.name} (${fmtRate(eol[metricKey], metricKey, 'kg')})`);
     details[metricKey] = bits.join(' ');
@@ -479,7 +531,7 @@ function renderParts() {
   el.innerHTML = product.parts.length
     ? product.parts.map(p => {
         const material = findById(MATERIALS, p.materialId);
-        return lineItemRow('part', p.id, p.name, `${p.weight} kg · ${material.name}`);
+        return lineItemRow('part', p.id, p.name, `${fmtWeight(p.weight)} · ${material.name}`);
       }).join('')
     : '<p class="hint">No parts yet.</p>';
 }
@@ -716,7 +768,7 @@ function renderRecycledTab() {
     return `<tr>
       <td>${p.name}</td>
       <td class="detail-cell">${material.name}</td>
-      <td class="num">${fmt(p.weight)} kg</td>
+      <td class="num">${fmtWeight(p.weight)}</td>
       <td class="num">${fmt(material.recycledPct, 0)}%</td>
     </tr>`;
   }).join('');
@@ -1358,7 +1410,7 @@ async function authSignUp() {
   currentUser = data.user;
   msg.textContent = '';
   renderAccountUI();
-  await renderScenarios();
+  await Promise.all([renderScenarios(), loadCustomMaterials()]);
 }
 
 async function authLogIn(emailId = 'auth-email', passwordId = 'auth-password', msgId = 'auth-message') {
@@ -1373,7 +1425,7 @@ async function authLogIn(emailId = 'auth-email', passwordId = 'auth-password', m
   msg.textContent = '';
   renderAccountUI();
   closeAccountMenu();
-  await renderScenarios();
+  await Promise.all([renderScenarios(), loadCustomMaterials()]);
 }
 
 async function authLogOut() {
@@ -1381,7 +1433,7 @@ async function authLogOut() {
   closeAccountMenu();
   currentUser = null;
   renderAccountUI();
-  await renderScenarios();
+  await Promise.all([renderScenarios(), loadCustomMaterials()]);
 }
 
 async function importLocalScenarios() {
@@ -1396,6 +1448,125 @@ async function importLocalScenarios() {
   saveLocalScenarios([]);
   await renderScenarios();
   renderAccountUI();
+}
+
+// --- Database tab: user-uploaded sustainability data. The server standardizes units on
+// the way in (see /api/database/upload); this side just merges the result into MATERIALS
+// so it shows up in the same material picker as the built-in reference data, and renders
+// the management table on the Database tab. ---
+let customMaterials = [];
+
+function applyCustomMaterialsToCatalog(list) {
+  // Drop any previously-injected entries first, so switching accounts (or signing out)
+  // never leaves a stale user's materials mixed into the catalog.
+  for (let i = MATERIALS.length - 1; i >= 0; i--) {
+    if (MATERIALS[i].id.startsWith('custom-')) MATERIALS.splice(i, 1);
+  }
+  for (const m of list) {
+    MATERIALS.push({
+      id: `custom-${m.id}`,
+      category: m.category || 'My database',
+      name: m.name,
+      ecoCost: m.ecoCost ?? 0,
+      co2e: m.co2e ?? 0,
+      water: m.water ?? 0,
+      energyIn: m.energyIn ?? 0,
+      recycledPct: m.recycledPct ?? 0,
+    });
+  }
+  initDropdowns();
+}
+
+async function loadCustomMaterials() {
+  if (!currentUser) {
+    customMaterials = [];
+    applyCustomMaterialsToCatalog([]);
+    renderCustomMaterialsTable();
+    return;
+  }
+  const { ok, data } = await api('/api/database/materials');
+  customMaterials = ok ? data.materials : [];
+  applyCustomMaterialsToCatalog(customMaterials);
+  renderCustomMaterialsTable();
+}
+
+function handleDatabaseFileSelect(event) {
+  const file = event.target.files[0];
+  document.getElementById('db-file-name').textContent = file ? file.name : 'No file chosen (.csv, .txt, .xlsx, .xls)';
+}
+
+async function uploadDatabaseFile() {
+  const status = document.getElementById('db-upload-status');
+  if (!currentUser) { status.textContent = 'Sign in first — your database is saved to your account.'; return; }
+  const fileInput = document.getElementById('db-file-input');
+  const file = fileInput.files[0];
+  if (!file) { status.textContent = 'Choose a file first.'; return; }
+
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('unitSystem', document.getElementById('db-source-units').value);
+
+  status.textContent = 'Uploading and cleaning…';
+  const res = await fetch('/api/database/upload', { method: 'POST', body: formData, credentials: 'same-origin' });
+  let data = {};
+  try { data = await res.json(); } catch (e) { /* no JSON body */ }
+
+  if (!res.ok) {
+    status.textContent = data.error || 'Upload failed.';
+    return;
+  }
+  const warnings = data.warnings || [];
+  status.innerHTML = `Added ${data.inserted.length} material(s).` +
+    (warnings.length ? `<br>${warnings.map(w => `⚠ ${w}`).join('<br>')}` : '');
+  fileInput.value = '';
+  document.getElementById('db-file-name').textContent = 'No file chosen (.csv, .txt, .xlsx, .xls)';
+  await loadCustomMaterials();
+}
+
+async function deleteCustomMaterial(id) {
+  await api(`/api/database/materials/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  await loadCustomMaterials();
+}
+
+async function clearCustomMaterials() {
+  if (!confirm('Remove every material in your database? This cannot be undone.')) return;
+  await api('/api/database/materials', { method: 'DELETE' });
+  await loadCustomMaterials();
+}
+
+function renderCustomMaterialsTable() {
+  const notice = document.getElementById('db-signed-out-notice');
+  const empty = document.getElementById('db-empty');
+  const table = document.getElementById('db-table');
+  const clearBtn = document.getElementById('db-clear-btn');
+  const countNote = document.getElementById('db-count-note');
+  if (!notice || !empty || !table) return; // not on the Database tab yet on first paint
+
+  notice.style.display = currentUser ? 'none' : '';
+
+  if (!customMaterials.length) {
+    empty.style.display = '';
+    table.style.display = 'none';
+    clearBtn.style.display = 'none';
+    countNote.textContent = '';
+    return;
+  }
+  empty.style.display = 'none';
+  table.style.display = '';
+  clearBtn.style.display = '';
+  countNote.textContent = `${customMaterials.length} material(s) in your database.`;
+
+  document.getElementById('db-tbody').innerHTML = customMaterials.map(m => `
+    <tr>
+      <td>${m.name}</td>
+      <td class="detail-cell">${m.category}</td>
+      <td class="num">${m.ecoCost == null ? '—' : fmtCurrencyRate(m.ecoCost, 'kg')}</td>
+      <td class="num">${m.co2e == null ? '—' : fmt(m.co2e) + ' kg/kg'}</td>
+      <td class="num">${m.water == null ? '—' : fmtWater(m.water) + '/kg'}</td>
+      <td class="num">${m.energyIn == null ? '—' : fmt(m.energyIn) + ' kWh/kg'}</td>
+      <td class="num">${m.recycledPct == null ? '—' : fmt(m.recycledPct, 0) + '%'}</td>
+      <td><button type="button" class="btn-remove" onclick="deleteCustomMaterial('${m.id}')">✕</button></td>
+    </tr>`).join('');
 }
 
 // --- Scenarios: our /api backend when signed in, localStorage otherwise ---
@@ -1507,6 +1678,7 @@ async function renderScenarios() {
 // --- Init ---
 initDropdowns();
 document.getElementById('currency-select').value = currentCurrency;
+document.getElementById('units-select').value = currentUnitSystem;
 ensureExchangeRates().then(() => {
   document.getElementById('currency-select').value = currentCurrency; // may have fallen back to EUR
   updateCurrencyNote();
@@ -1515,5 +1687,5 @@ ensureExchangeRates().then(() => {
 });
 renderAll();
 renderAccountUI();
-refreshCurrentUser().then(renderScenarios);
+refreshCurrentUser().then(() => Promise.all([renderScenarios(), loadCustomMaterials()]));
 showTab('home');

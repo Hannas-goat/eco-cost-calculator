@@ -86,6 +86,24 @@ async function initDb() {
     product TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
+  // User-uploaded sustainability data (the "Database" tab) -- numeric fields are always
+  // stored already standardized to this app's canonical metric-per-kg basis (matching
+  // the built-in MATERIALS table: eur/kg, kg CO2e/kg, L/kg, kWh/kg), regardless of what
+  // unit system the source file was in. source_unit_system just records what the upload
+  // declared, for transparency -- it's not consulted again after import.
+  await db.execute(`CREATE TABLE IF NOT EXISTS custom_materials (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    category TEXT NOT NULL DEFAULT 'My database',
+    name TEXT NOT NULL,
+    eco_cost REAL,
+    co2e REAL,
+    water REAL,
+    energy_in REAL,
+    recycled_pct REAL,
+    source_unit_system TEXT NOT NULL DEFAULT 'metric',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  )`);
 }
 
 const app = express();
@@ -267,6 +285,191 @@ app.post('/api/scenarios', requireAuth, async (req, res) => {
 
 app.delete('/api/scenarios/:id', requireAuth, async (req, res) => {
   await db.execute({ sql: 'DELETE FROM scenarios WHERE id = ? AND user_id = ?', args: [req.params.id, req.userId] });
+  res.status(204).end();
+});
+
+// --- Database tab: upload sustainability data (CSV/TXT/XLSX/XLS), standardize its units,
+// and store it per-user so it's available to every calculator alongside the built-in
+// MATERIALS reference data. Standardization mirrors this app's existing currency
+// handling: everything is converted to one canonical basis on the way in (here, metric
+// eur/kg, kg CO2e/kg, L/kg, kWh/kg) so nothing downstream needs to know or care what
+// unit system the original file used. ---
+const dbUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
+});
+
+const LB_PER_KG = 2.2046226218;
+const L_PER_GAL = 3.785411784;
+const MAX_DATABASE_ROWS_PER_UPLOAD = 500;
+
+function normalizeUnitSystem(v) {
+  if (!v) return null;
+  const s = String(v).trim().toLowerCase();
+  if (['us', 'usa', 'imperial', 'lb', 'lbs', 'pound', 'pounds', 'american'].includes(s)) return 'us';
+  if (['metric', 'si', 'kg', 'eu', 'european'].includes(s)) return 'metric';
+  return null;
+}
+
+function normalizeHeader(h) {
+  return String(h || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+// Real-world headers carry unit annotations ("CO2e (kg/kg)", "Cost ($/lb)"), so headers
+// are matched by substring rather than exact equality -- longest synonym first, so a
+// more specific synonym always wins over a shorter one that happens to also match.
+const DATABASE_FIELD_SYNONYMS = {
+  name: ['material', 'name', 'item', 'product', 'description'],
+  category: ['category', 'type', 'group', 'class'],
+  ecoCost: ['ecocost', 'cost', 'price'],
+  co2e: ['carbonfootprint', 'co2e', 'carbon', 'ghg', 'co2'],
+  water: ['waterconsumption', 'wateruse', 'water'],
+  energyIn: ['embodiedenergy', 'energyin', 'energyuse', 'energy'],
+  recycledPct: ['recycledcontent', 'recycledpct', 'recycled'],
+  unit: ['unitsystem', 'units', 'unit', 'basis'],
+};
+const HEADER_SYNONYM_PAIRS = Object.entries(DATABASE_FIELD_SYNONYMS)
+  .flatMap(([field, synonyms]) => synonyms.map((synonym) => ({ field, synonym })))
+  .sort((a, b) => b.synonym.length - a.synonym.length);
+
+function matchHeaderField(normalizedHeader) {
+  const hit = HEADER_SYNONYM_PAIRS.find((p) => normalizedHeader.includes(p.synonym));
+  return hit ? hit.field : null;
+}
+
+function parseNum(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(String(v).replace(/[^0-9.eE+-]/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+function rowsFromFile(buffer, ext) {
+  const workbook = (ext === '.xlsx' || ext === '.xls')
+    ? XLSX.read(buffer, { type: 'buffer' })
+    : XLSX.read(buffer.toString('utf8'), { type: 'string' }); // .csv / .txt
+  const sheetName = workbook.SheetNames[0];
+  if (!sheetName) return [];
+  return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
+}
+
+// Converts one raw uploaded row into the app's canonical metric-per-kg basis. co2e and
+// recycledPct are ratios (mass/mass, a plain percentage) so they never need conversion;
+// only fields with an actual per-kg-or-per-lb basis do.
+function standardizeRow(rawRow, defaultUnitSystem) {
+  const mapped = {};
+  for (const [header, value] of Object.entries(rawRow)) {
+    const field = matchHeaderField(normalizeHeader(header));
+    if (field && mapped[field] === undefined) mapped[field] = value;
+  }
+
+  const name = String(mapped.name || '').trim();
+  if (!name) return { skipped: 'no name/material column found' };
+
+  const unitSystem = normalizeUnitSystem(mapped.unit) || defaultUnitSystem;
+  const massFactor = unitSystem === 'us' ? LB_PER_KG : 1;
+  const waterFactor = unitSystem === 'us' ? LB_PER_KG * L_PER_GAL : 1;
+
+  const ecoCost = parseNum(mapped.ecoCost);
+  const co2e = parseNum(mapped.co2e);
+  const water = parseNum(mapped.water);
+  const energyIn = parseNum(mapped.energyIn);
+  const recycledPct = parseNum(mapped.recycledPct);
+
+  if (ecoCost == null && co2e == null && water == null && energyIn == null) {
+    return { skipped: 'no numeric eco-cost/CO2e/water/energy value found' };
+  }
+
+  return {
+    row: {
+      name,
+      category: String(mapped.category || '').trim() || 'My database',
+      ecoCost: ecoCost == null ? null : ecoCost * massFactor,
+      co2e,
+      water: water == null ? null : water * waterFactor,
+      energyIn: energyIn == null ? null : energyIn * massFactor,
+      recycledPct,
+      sourceUnitSystem: unitSystem,
+    },
+  };
+}
+
+function toPublicCustomMaterial(row) {
+  return {
+    id: row.id,
+    category: row.category,
+    name: row.name,
+    ecoCost: row.eco_cost,
+    co2e: row.co2e,
+    water: row.water,
+    energyIn: row.energy_in,
+    recycledPct: row.recycled_pct,
+    sourceUnitSystem: row.source_unit_system,
+  };
+}
+
+app.post('/api/database/upload', requireAuth, dbUpload.single('file'), async (req, res) => {
+  const file = req.file;
+  if (!file) return res.status(400).json({ error: 'No file was uploaded.' });
+
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  if (!['.csv', '.txt', '.xlsx', '.xls'].includes(ext)) {
+    return res.status(400).json({ error: `Unsupported file type "${ext || file.mimetype}". Upload a .csv, .txt, .xlsx, or .xls file.` });
+  }
+  const defaultUnitSystem = normalizeUnitSystem(req.body.unitSystem) || 'metric';
+
+  let rawRows;
+  try {
+    rawRows = rowsFromFile(file.buffer, ext);
+  } catch (e) {
+    return res.status(400).json({ error: `Could not read that file: ${e.message}` });
+  }
+  if (!rawRows.length) return res.status(400).json({ error: 'No rows were found in that file.' });
+
+  const truncated = rawRows.length > MAX_DATABASE_ROWS_PER_UPLOAD;
+  const usableRows = rawRows.slice(0, MAX_DATABASE_ROWS_PER_UPLOAD);
+
+  const warnings = [];
+  if (truncated) {
+    warnings.push(`Only the first ${MAX_DATABASE_ROWS_PER_UPLOAD} rows were processed (file had ${rawRows.length}).`);
+  }
+
+  const inserted = [];
+  for (const [i, rawRow] of usableRows.entries()) {
+    const { row, skipped } = standardizeRow(rawRow, defaultUnitSystem);
+    if (skipped) {
+      warnings.push(`Row ${i + 2}: skipped (${skipped}).`);
+      continue;
+    }
+    const id = crypto.randomUUID();
+    await db.execute({
+      sql: `INSERT INTO custom_materials (id, user_id, category, name, eco_cost, co2e, water, energy_in, recycled_pct, source_unit_system)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [id, req.userId, row.category, row.name, row.ecoCost, row.co2e, row.water, row.energyIn, row.recycledPct, row.sourceUnitSystem],
+    });
+    inserted.push({ id, ...row });
+  }
+
+  if (!inserted.length) {
+    return res.status(400).json({ error: 'No usable rows were found — need at least a name and one numeric value per row.', warnings });
+  }
+  res.status(201).json({ inserted, warnings });
+});
+
+app.get('/api/database/materials', requireAuth, async (req, res) => {
+  const result = await db.execute({
+    sql: 'SELECT id, category, name, eco_cost, co2e, water, energy_in, recycled_pct, source_unit_system FROM custom_materials WHERE user_id = ? ORDER BY created_at ASC',
+    args: [req.userId],
+  });
+  res.json({ materials: result.rows.map(toPublicCustomMaterial) });
+});
+
+app.delete('/api/database/materials/:id', requireAuth, async (req, res) => {
+  await db.execute({ sql: 'DELETE FROM custom_materials WHERE id = ? AND user_id = ?', args: [req.params.id, req.userId] });
+  res.status(204).end();
+});
+
+app.delete('/api/database/materials', requireAuth, async (req, res) => {
+  await db.execute({ sql: 'DELETE FROM custom_materials WHERE user_id = ?', args: [req.userId] });
   res.status(204).end();
 });
 

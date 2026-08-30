@@ -43,6 +43,7 @@
 
 <nav class="tabs">
   <button type="button" id="tabbtn-home" class="tab-btn active" onclick="showTab('home')"><span class="tab-icon" aria-hidden="true">🏠</span>Home</button>
+  <button type="button" id="tabbtn-database" class="tab-btn" onclick="showTab('database')"><span class="tab-icon" aria-hidden="true">🗄️</span>Database</button>
   <button type="button" id="tabbtn-carbon" class="tab-btn" onclick="showTab('carbon')"><span class="tab-icon" aria-hidden="true">☁️</span>Carbon footprint</button>
   <button type="button" id="tabbtn-water" class="tab-btn" onclick="showTab('water')"><span class="tab-icon" aria-hidden="true">💧</span>Water consumption</button>
   <button type="button" id="tabbtn-energy" class="tab-btn" onclick="showTab('energy')"><span class="tab-icon" aria-hidden="true">⚡</span>Energy in production</button>
@@ -73,6 +74,14 @@
         </select>
         <span class="hint-inline" id="currency-note">All amounts entered and shown in euros.</span>
       </div>
+      <div class="currency-row">
+        <label for="units-select">Weight &amp; water units</label>
+        <select id="units-select" onchange="changeUnitSystem()">
+          <option value="metric">Metric (kg, L) — European</option>
+          <option value="us">US customary (lb, gal) — American</option>
+        </select>
+        <span class="hint-inline" id="units-note">Weight is entered and shown in kilograms, water in liters.</span>
+      </div>
       <div class="stat-grid">
         <div class="stat stat-primary" id="stat-card-ecoCost"><span class="stat-label">Eco-cost</span><span class="stat-value" id="stat-ecoCost">€0.00</span></div>
         <div class="stat" id="stat-card-co2e"><span class="stat-label">Carbon footprint</span><span class="stat-value" id="stat-co2e">0.00 kg CO2e</span></div>
@@ -82,6 +91,53 @@
       </div>
       <div class="export-row">
         <button type="button" class="btn-secondary" onclick="window.print()">🖨️ Print / save full report as PDF</button>
+      </div>
+    </section>
+
+    <section class="card" id="auth-card">
+      <h2>👤 Your account</h2>
+
+      <div id="ac-signed-out">
+        <p class="hint">Create an account to save your builds and reach them from any device — or log in if you already have one.</p>
+
+        <div class="ac-toggle">
+          <button type="button" class="ac-toggle-btn active" id="ac-tab-signup" onclick="setAuthCardMode('signup')">Sign up</button>
+          <button type="button" class="ac-toggle-btn" id="ac-tab-login" onclick="setAuthCardMode('login')">Log in</button>
+        </div>
+
+        <form id="ac-form-signup" class="add-form" onsubmit="return false;">
+          <input type="text" id="ac-name" placeholder="Preferred name" autocomplete="name">
+          <input type="email" id="ac-email" placeholder="Email" autocomplete="email">
+          <input type="password" id="ac-password" placeholder="Password (min 6 characters)" autocomplete="new-password">
+          <input type="tel" id="ac-phone" placeholder="Phone number" autocomplete="tel">
+          <input type="text" id="ac-company" placeholder="Company / institution" autocomplete="organization">
+          <select id="ac-position">
+            <option value="" disabled selected>Position…</option>
+            <option>Undergraduate student</option>
+            <option>Graduate student</option>
+            <option>Postdoctoral associate</option>
+            <option>Professor</option>
+            <option>Industry professional</option>
+            <option>Other</option>
+          </select>
+          <button type="button" class="btn-primary" onclick="authSignUp()">Create account →</button>
+        </form>
+
+        <form id="ac-form-login" class="add-form" style="display:none;" onsubmit="return false;">
+          <input type="email" id="ac-login-email" placeholder="Email" autocomplete="email">
+          <input type="password" id="ac-login-password" placeholder="Password" autocomplete="current-password">
+          <button type="button" class="btn-primary" onclick="authLogIn('ac-login-email','ac-login-password','ac-message')">Log in →</button>
+        </form>
+
+        <div id="ac-message" class="hint"></div>
+      </div>
+
+      <div id="ac-signed-in" style="display:none;">
+        <p class="hint">Signed in as <strong id="ac-profile-name"></strong> · <span id="ac-profile-email"></span><br><span id="ac-profile-details"></span></p>
+        <div id="ac-import-row" style="display:none;">
+          <button type="button" class="btn-secondary" onclick="importLocalScenarios()">⬆ Import builds saved in this browser</button>
+        </div>
+        <button type="button" class="btn-secondary" onclick="authLogOut()">Log out</button>
       </div>
     </section>
 
@@ -202,53 +258,6 @@
       </div>
     </section>
 
-    <section class="card" id="auth-card">
-      <h2>👤 Your account</h2>
-
-      <div id="ac-signed-out">
-        <p class="hint">Create an account to save your builds and reach them from any device — or log in if you already have one.</p>
-
-        <div class="ac-toggle">
-          <button type="button" class="ac-toggle-btn active" id="ac-tab-signup" onclick="setAuthCardMode('signup')">Sign up</button>
-          <button type="button" class="ac-toggle-btn" id="ac-tab-login" onclick="setAuthCardMode('login')">Log in</button>
-        </div>
-
-        <form id="ac-form-signup" class="add-form" onsubmit="return false;">
-          <input type="text" id="ac-name" placeholder="Preferred name" autocomplete="name">
-          <input type="email" id="ac-email" placeholder="Email" autocomplete="email">
-          <input type="password" id="ac-password" placeholder="Password (min 6 characters)" autocomplete="new-password">
-          <input type="tel" id="ac-phone" placeholder="Phone number" autocomplete="tel">
-          <input type="text" id="ac-company" placeholder="Company / institution" autocomplete="organization">
-          <select id="ac-position">
-            <option value="" disabled selected>Position…</option>
-            <option>Undergraduate student</option>
-            <option>Graduate student</option>
-            <option>Postdoctoral associate</option>
-            <option>Professor</option>
-            <option>Industry professional</option>
-            <option>Other</option>
-          </select>
-          <button type="button" class="btn-primary" onclick="authSignUp()">Create account →</button>
-        </form>
-
-        <form id="ac-form-login" class="add-form" style="display:none;" onsubmit="return false;">
-          <input type="email" id="ac-login-email" placeholder="Email" autocomplete="email">
-          <input type="password" id="ac-login-password" placeholder="Password" autocomplete="current-password">
-          <button type="button" class="btn-primary" onclick="authLogIn('ac-login-email','ac-login-password','ac-message')">Log in →</button>
-        </form>
-
-        <div id="ac-message" class="hint"></div>
-      </div>
-
-      <div id="ac-signed-in" style="display:none;">
-        <p class="hint">Signed in as <strong id="ac-profile-name"></strong> · <span id="ac-profile-email"></span><br><span id="ac-profile-details"></span></p>
-        <div id="ac-import-row" style="display:none;">
-          <button type="button" class="btn-secondary" onclick="importLocalScenarios()">⬆ Import builds saved in this browser</button>
-        </div>
-        <button type="button" class="btn-secondary" onclick="authLogOut()">Log out</button>
-      </div>
-    </section>
-
     <section class="card" id="scenarios-card">
       <h2>🔀 3. Save &amp; compare scenarios</h2>
       <p class="hint">Save the current product as a named scenario (e.g. "Base case", "Recycled aluminium body"), then compare every indicator side by side to see which design choices reduce environmental impact most. <span id="scenarios-storage-note"></span></p>
@@ -267,6 +276,43 @@
   </section>
 
   <!-- ===== CARBON FOOTPRINT (derived view of the Home product) ===== -->
+  <!-- ===== DATABASE (upload & standardize your own sustainability data) ===== -->
+  <section id="tab-database" class="tab-panel" style="display:none;">
+
+    <section class="card">
+      <h2>🗄️ Upload sustainability data</h2>
+      <p class="hint">Upload a spreadsheet or text file of material data — name, category, eco-cost, CO2e, water, energy, recycled % — and inconsistent units get cleaned up automatically. Everything you add here shows up in the material picker on the Home tab, right alongside the built-in reference data.</p>
+      <div id="db-signed-out-notice" class="hint" style="display:none;">Sign in (top right, or the account card on the Home tab) to build your own database — it's saved to your account and available every time you come back.</div>
+
+      <form id="db-upload-form" class="add-form" onsubmit="return false;">
+        <label class="btn-ghost" for="db-file-input" style="cursor:pointer;">⬆ Choose file</label>
+        <input type="file" id="db-file-input" accept=".csv,.txt,.xlsx,.xls" style="display:none;" onchange="handleDatabaseFileSelect(event)">
+        <span class="hint-inline" id="db-file-name">No file chosen (.csv, .txt, .xlsx, .xls)</span>
+        <select id="db-source-units" aria-label="Units used in the uploaded file">
+          <option value="metric">File uses metric units (kg, L)</option>
+          <option value="us">File uses US units (lb, gal)</option>
+        </select>
+        <button type="button" class="btn-primary" onclick="uploadDatabaseFile()">Clean &amp; add to my database →</button>
+      </form>
+      <div id="db-upload-status" class="hint"></div>
+      <p class="hint-inline">Columns are matched flexibly (e.g. "Cost ($/lb)" or "Eco-cost (EUR/kg)" both work) — expected fields: name/material, category, eco-cost, CO2e, water, energy, recycled %. Add a "unit" column per row to override the file-wide setting above for mixed-unit files.</p>
+    </section>
+
+    <section class="card">
+      <h2>📋 Your database</h2>
+      <p class="hint">Stored standardized to metric (€/kg, kg CO2e/kg, L/kg, kWh/kg) regardless of the source file, shown below in your selected display units. <span id="db-count-note"></span></p>
+      <div id="db-empty" class="hint">No custom materials yet — upload a file above to get started.</div>
+      <table class="results-table" id="db-table" style="display:none;">
+        <thead><tr><th>Name</th><th>Category</th><th>Eco-cost</th><th>CO2e</th><th>Water</th><th>Energy</th><th>Recycled %</th><th></th></tr></thead>
+        <tbody id="db-tbody"></tbody>
+      </table>
+      <div class="export-row">
+        <button type="button" class="btn-secondary" id="db-clear-btn" style="display:none;" onclick="clearCustomMaterials()">🗑 Clear all</button>
+      </div>
+    </section>
+
+  </section>
+
   <section id="tab-carbon" class="tab-panel" style="display:none;">
     <section class="card">
       <h2>☁️ Carbon footprint</h2>
