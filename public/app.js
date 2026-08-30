@@ -2989,13 +2989,9 @@ function toggleScenarioCompareSelection(id, checked) {
   renderScenarioDetailCompare();
 }
 
-// Eco-cost here is deliberately always euros (fmt(), not fmtMetric()) rather than
-// following the live currency selector -- the same "stable reference regardless of
-// display settings" reasoning already used for preset validation totals and CSV
-// exports elsewhere in this app, so two scenarios saved/viewed under different currency
-// selections still compare on the same footing. Carbon/water/energy still follow the
-// normal fmtMetric() (water follows the weight/water unit toggle; carbon and energy have
-// no toggle to begin with).
+// Every metric here (including eco-cost) follows the live currency/unit settings via
+// fmtMetric() -- same as the main scenarios table right above it -- so the comparison
+// always reflects whatever currency the user currently has selected.
 function renderScenarioDetailCompare() {
   const wrap = document.getElementById('scenario-detail-compare');
   if (!wrap) return;
@@ -3005,7 +3001,7 @@ function renderScenarioDetailCompare() {
     return;
   }
   const metrics = [
-    { key: 'ecoCost', label: 'Eco-cost (always in euros, for a stable comparison)' },
+    { key: 'ecoCost', label: 'Eco-cost' },
     { key: 'co2e', label: 'Carbon footprint' },
     { key: 'water', label: 'Water consumption' },
     { key: 'energyIn', label: 'Energy used in production' },
@@ -3016,7 +3012,7 @@ function renderScenarioDetailCompare() {
     const bars = rows.map((r) => {
       const pct = (Math.abs(r.value) / maxAbs) * 100;
       const barClass = r.value < 0 ? 'bar-credit' : 'bar-burden';
-      const valueText = m.key === 'ecoCost' ? `€${fmt(r.value)}` : fmtMetric(r.value, m.key);
+      const valueText = fmtMetric(r.value, m.key);
       return `<div class="chart-row">
         <span class="chart-label">${escapeXml(r.label)}</span>
         <div class="chart-track"><div class="chart-bar ${barClass}" style="width:${pct}%"></div></div>
