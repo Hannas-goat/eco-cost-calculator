@@ -1811,12 +1811,25 @@ async function loadCustomMaterials() {
     customMaterials = [];
     applyCustomMaterialsToCatalog([]);
     renderCustomMaterialsTable();
+    refreshTabImportPickers();
     return;
   }
   const { ok, data } = await api('/api/database/materials');
   customMaterials = ok ? data.materials : [];
   applyCustomMaterialsToCatalog(customMaterials);
   renderCustomMaterialsTable();
+  refreshTabImportPickers();
+}
+
+// Generic helper for the checkbox-group dropdowns (data type, etc.) -- returns the
+// `value`s of every checked box inside the given container.
+function getCheckedValues(containerId) {
+  return Array.from(document.querySelectorAll(`#${containerId} input[type="checkbox"]:checked`)).map((el) => el.value);
+}
+
+function updateDbDataTypeSummary() {
+  const checked = getCheckedValues('db-datatype-checkboxes');
+  document.getElementById('db-datatype-summary').textContent = checked.length ? `(${checked.length} selected)` : '(none selected)';
 }
 
 function handleDatabaseFileSelect(event) {
@@ -1834,7 +1847,7 @@ async function uploadDatabaseFile() {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('unitSystem', document.getElementById('db-source-units').value);
-  const selectedDataTypes = Array.from(document.getElementById('db-datatype-select').selectedOptions).map(o => o.value);
+  const selectedDataTypes = getCheckedValues('db-datatype-checkboxes');
   formData.append('dataTypes', JSON.stringify(selectedDataTypes));
 
   status.textContent = 'Uploading and cleaning…';
@@ -1899,6 +1912,81 @@ function renderCustomMaterialsTable() {
       <td class="num">${m.recycledPct == null ? '—' : fmt(m.recycledPct, 0) + '%'}</td>
       <td><button type="button" class="btn-remove" onclick="deleteCustomMaterial('${m.id}')">✕</button></td>
     </tr>`).join('');
+}
+
+// --- Per-tab import/export: lets Carbon/Water/Energy each pull in (or save out) data
+// tagged with their own topic from the shared Database, instead of everything having to
+// go through Home. Database materials are per-kg RATES (like MATERIALS itself), so
+// importing one asks for a quantity (kg) and multiplies -- same rate x quantity pattern
+// as Parts and Chemicals used. The manual "add" form is a flat one-off contribution
+// instead (matching Custom line item on Home), optionally also saved to the database as
+// a per-kg reference value for reuse elsewhere.
+const TAB_TOPICS = {
+  co2e: { dataType: 'ghg-emissions', prefix: 'carbon' },
+  water: { dataType: 'water-pollution', prefix: 'water' },
+  energyIn: { dataType: 'energy-consumption', prefix: 'energy' },
+};
+
+function refreshTabImportPickers() {
+  Object.keys(TAB_TOPICS).forEach(renderTabImportPicker);
+}
+
+function renderTabImportPicker(metricKey) {
+  const topic = TAB_TOPICS[metricKey];
+  const select = document.getElementById(`${topic.prefix}-import-select`);
+  if (!select) return; // tab not in the DOM yet on first paint
+  const matches = customMaterials.filter((m) => (m.dataTypes || []).includes(topic.dataType) && m[metricKey] != null);
+  select.innerHTML = matches.map((m) => `<option value="${m.id}">${m.name} (${fmtMetric(m[metricKey], metricKey)}/kg)</option>`).join('');
+  document.getElementById(`${topic.prefix}-import-empty`).style.display = matches.length ? 'none' : '';
+  document.getElementById(`${topic.prefix}-import-row`).style.display = matches.length ? '' : 'none';
+}
+
+function importTabMaterial(metricKey) {
+  const topic = TAB_TOPICS[metricKey];
+  const select = document.getElementById(`${topic.prefix}-import-select`);
+  const quantity = Number(document.getElementById(`${topic.prefix}-import-quantity`).value);
+  const material = customMaterials.find((m) => m.id === select.value);
+  if (!material || !quantity || quantity <= 0) {
+    alert('Pick a database entry and a positive quantity.');
+    return;
+  }
+  product.customLines.push({
+    id: nextLineId++, name: `${material.name} (${fmt(quantity)} kg)`,
+    ecoCost: 0, co2e: 0, water: 0, energyIn: 0,
+    [metricKey]: quantity * material[metricKey],
+  });
+  activePresetKey = null;
+  renderAll();
+}
+
+async function addTabData(metricKey) {
+  const topic = TAB_TOPICS[metricKey];
+  const nameEl = document.getElementById(`${topic.prefix}-add-name`);
+  const valueEl = document.getElementById(`${topic.prefix}-add-value`);
+  const saveEl = document.getElementById(`${topic.prefix}-add-save`);
+  const name = nameEl.value.trim();
+  const value = Number(valueEl.value);
+  if (!name || !value) {
+    alert('Give it a name and a value.');
+    return;
+  }
+
+  product.customLines.push({ id: nextLineId++, name, ecoCost: 0, co2e: 0, water: 0, energyIn: 0, [metricKey]: value });
+  activePresetKey = null;
+
+  if (saveEl.checked) {
+    if (!currentUser) {
+      alert('Added to this product — but sign in first to also save it to your database.');
+    } else {
+      const { ok } = await api('/api/database/materials', { method: 'POST', body: { name, [metricKey]: value, dataTypes: [topic.dataType] } });
+      if (ok) await loadCustomMaterials();
+    }
+  }
+
+  nameEl.value = '';
+  valueEl.value = '';
+  saveEl.checked = false;
+  renderAll();
 }
 
 // --- Chemicals: same shape as the custom-materials block above, merged into the

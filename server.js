@@ -518,6 +518,40 @@ app.post('/api/database/upload', requireAuth, dbUpload.single('file'), async (re
   res.status(201).json({ inserted, warnings });
 });
 
+// Adds one material directly as JSON (no file) -- used by the per-tab "save to my
+// database" actions (Carbon/Water/Energy), which add a single named value rather than
+// uploading a spreadsheet. Values are assumed already in the app's canonical metric
+// basis (the tab that calls this only ever deals in metric internally).
+app.post('/api/database/materials', requireAuth, async (req, res) => {
+  const { name, category, ecoCost, co2e, water, energyIn, recycledPct, dataTypes } = req.body || {};
+  if (typeof name !== 'string' || !name.trim()) {
+    return res.status(400).json({ error: 'Name is required.' });
+  }
+  const numOrNull = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const validDataTypes = Array.isArray(dataTypes) ? dataTypes.filter((t) => DATA_TYPE_IDS.has(t)) : [];
+
+  const id = crypto.randomUUID();
+  const row = {
+    name: name.trim(),
+    category: (typeof category === 'string' && category.trim()) || 'My database',
+    ecoCost: numOrNull(ecoCost),
+    co2e: numOrNull(co2e),
+    water: numOrNull(water),
+    energyIn: numOrNull(energyIn),
+    recycledPct: numOrNull(recycledPct),
+    sourceUnitSystem: 'metric',
+  };
+  if (row.ecoCost == null && row.co2e == null && row.water == null && row.energyIn == null) {
+    return res.status(400).json({ error: 'Enter at least one numeric value.' });
+  }
+  await db.execute({
+    sql: `INSERT INTO custom_materials (id, user_id, category, name, eco_cost, co2e, water, energy_in, recycled_pct, source_unit_system, data_types)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    args: [id, req.userId, row.category, row.name, row.ecoCost, row.co2e, row.water, row.energyIn, row.recycledPct, row.sourceUnitSystem, JSON.stringify(validDataTypes)],
+  });
+  res.status(201).json({ material: { id, ...row, dataTypes: validDataTypes } });
+});
+
 app.get('/api/database/materials', requireAuth, async (req, res) => {
   const result = await db.execute({
     sql: 'SELECT id, category, name, eco_cost, co2e, water, energy_in, recycled_pct, source_unit_system, data_types FROM custom_materials WHERE user_id = ? ORDER BY created_at ASC',

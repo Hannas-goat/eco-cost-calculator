@@ -329,15 +329,18 @@
         <button type="button" class="btn-primary" onclick="uploadDatabaseFile()">Clean &amp; add to my database →</button>
       </form>
 
-      <p class="hint-inline" style="margin: 10px 0 0;">Data type <span class="hint-inline">(ctrl/cmd-click, or shift-click, to select more than one — a per-row "Data type" column, if present, overrides this)</span></p>
-      <select id="db-datatype-select" class="db-datatype-select" multiple size="6" aria-label="Data type(s) in this file">
-        <option value="energy-consumption">Energy consumption</option>
-        <option value="cost">Cost</option>
-        <option value="ghg-emissions">Greenhouse gas emissions</option>
-        <option value="water-pollution">Water pollution</option>
-        <option value="waste-management">Waste management</option>
-        <option value="natural-resources">Natural resources</option>
-      </select>
+      <details class="builder-section" id="db-datatype-details">
+        <summary>Data type <span class="hint-inline" id="db-datatype-summary">(none selected)</span></summary>
+        <p class="hint-inline">Check all that apply to this file — a per-row "Data type" column, if present, overrides this.</p>
+        <div class="checkbox-group" id="db-datatype-checkboxes">
+          <label><input type="checkbox" value="energy-consumption" onchange="updateDbDataTypeSummary()"> Energy consumption</label>
+          <label><input type="checkbox" value="cost" onchange="updateDbDataTypeSummary()"> Cost</label>
+          <label><input type="checkbox" value="ghg-emissions" onchange="updateDbDataTypeSummary()"> Greenhouse gas emissions</label>
+          <label><input type="checkbox" value="water-pollution" onchange="updateDbDataTypeSummary()"> Water pollution</label>
+          <label><input type="checkbox" value="waste-management" onchange="updateDbDataTypeSummary()"> Waste management</label>
+          <label><input type="checkbox" value="natural-resources" onchange="updateDbDataTypeSummary()"> Natural resources</label>
+        </div>
+      </details>
 
       <div id="db-upload-status" class="hint"></div>
       <p class="hint-inline">Columns are matched flexibly (e.g. "Cost ($/lb)" or "Eco-cost (EUR/kg)" both work) — expected fields: name/material, category, eco-cost, CO2e, water, energy, recycled %, data type. Add a "unit" or "data type" column per row to override the file-wide settings above for mixed files.</p>
@@ -393,8 +396,27 @@
   <!-- ===== CARBON FOOTPRINT (derived view of the Home product) ===== -->
   <section id="tab-carbon" class="tab-panel" style="display:none;">
     <section class="card">
+      <h2>📥 Add carbon-footprint data</h2>
+      <p class="hint">Add data specific to carbon footprint directly here — a line item that adds only to CO2e (not eco-cost/water/energy) — or pull in something already saved to your database.</p>
+
+      <div id="carbon-import-empty" class="hint" style="display:none;">No matching entries in your database yet — tag something "Greenhouse gas emissions" on the Database tab, or add one below.</div>
+      <div id="carbon-import-row" class="add-form" style="display:none;">
+        <select id="carbon-import-select" aria-label="Import from your database"></select>
+        <input type="number" id="carbon-import-quantity" placeholder="Quantity (kg)" min="0" step="any" value="1">
+        <button type="button" class="btn-secondary" onclick="importTabMaterial('co2e')">Add to product →</button>
+      </div>
+
+      <form class="add-form" onsubmit="return false;">
+        <input type="text" id="carbon-add-name" placeholder="Description (e.g. Diesel generator use)">
+        <input type="number" id="carbon-add-value" placeholder="CO2e (kg)" step="any">
+        <label class="hint-inline" style="display:inline-flex; align-items:center; gap:6px; white-space:nowrap;"><input type="checkbox" id="carbon-add-save"> Also save to my database (as a per-kg reference value)</label>
+        <button type="button" class="btn-primary" onclick="addTabData('co2e')">Add →</button>
+      </form>
+    </section>
+
+    <section class="card">
       <h2>☁️ Carbon footprint</h2>
-      <p class="hint">CO2e breakdown for the product you build on the Home tab — nothing to enter here.</p>
+      <p class="hint">CO2e breakdown for the product you build on the Home tab, plus anything added above.</p>
       <div id="carbon-empty" class="hint">Add at least one part on the Home tab to see the carbon breakdown.</div>
       <div id="carbon-body" style="display:none;">
         <table class="results-table">
@@ -424,8 +446,27 @@
   <!-- ===== WATER CONSUMPTION (derived view of the Home product) ===== -->
   <section id="tab-water" class="tab-panel" style="display:none;">
     <section class="card">
+      <h2>📥 Add water-consumption data</h2>
+      <p class="hint">Add data specific to water consumption directly here — a line item that adds only to water use (not eco-cost/carbon/energy) — or pull in something already saved to your database.</p>
+
+      <div id="water-import-empty" class="hint" style="display:none;">No matching entries in your database yet — tag something "Water pollution" on the Database tab, or add one below.</div>
+      <div id="water-import-row" class="add-form" style="display:none;">
+        <select id="water-import-select" aria-label="Import from your database"></select>
+        <input type="number" id="water-import-quantity" placeholder="Quantity (kg)" min="0" step="any" value="1">
+        <button type="button" class="btn-secondary" onclick="importTabMaterial('water')">Add to product →</button>
+      </div>
+
+      <form class="add-form" onsubmit="return false;">
+        <input type="text" id="water-add-name" placeholder="Description (e.g. Cooling tower makeup water)">
+        <input type="number" id="water-add-value" placeholder="Water (L)" step="any">
+        <label class="hint-inline" style="display:inline-flex; align-items:center; gap:6px; white-space:nowrap;"><input type="checkbox" id="water-add-save"> Also save to my database (as a per-kg reference value)</label>
+        <button type="button" class="btn-primary" onclick="addTabData('water')">Add →</button>
+      </form>
+    </section>
+
+    <section class="card">
       <h2>💧 Water consumption</h2>
-      <p class="hint">Water use (litres) for the product you build on the Home tab — nothing to enter here.</p>
+      <p class="hint">Water use (litres) for the product you build on the Home tab, plus anything added above.</p>
       <div id="water-empty" class="hint">Add at least one part on the Home tab to see the water breakdown.</div>
       <div id="water-body" style="display:none;">
         <table class="results-table">
@@ -455,8 +496,27 @@
   <!-- ===== ENERGY USED IN PRODUCTION (derived view of the Home product) ===== -->
   <section id="tab-energy" class="tab-panel" style="display:none;">
     <section class="card">
+      <h2>📥 Add energy-consumption data</h2>
+      <p class="hint">Add data specific to energy consumption directly here — a line item that adds only to energy (not eco-cost/carbon/water) — or pull in something already saved to your database.</p>
+
+      <div id="energy-import-empty" class="hint" style="display:none;">No matching entries in your database yet — tag something "Energy consumption" on the Database tab, or add one below.</div>
+      <div id="energy-import-row" class="add-form" style="display:none;">
+        <select id="energy-import-select" aria-label="Import from your database"></select>
+        <input type="number" id="energy-import-quantity" placeholder="Quantity (kg)" min="0" step="any" value="1">
+        <button type="button" class="btn-secondary" onclick="importTabMaterial('energyIn')">Add to product →</button>
+      </div>
+
+      <form class="add-form" onsubmit="return false;">
+        <input type="text" id="energy-add-name" placeholder="Description (e.g. Curing oven run time)">
+        <input type="number" id="energy-add-value" placeholder="Energy (kWh)" step="any">
+        <label class="hint-inline" style="display:inline-flex; align-items:center; gap:6px; white-space:nowrap;"><input type="checkbox" id="energy-add-save"> Also save to my database (as a per-kg reference value)</label>
+        <button type="button" class="btn-primary" onclick="addTabData('energyIn')">Add →</button>
+      </form>
+    </section>
+
+    <section class="card">
       <h2>⚡ Energy used in production</h2>
-      <p class="hint">Embodied / cumulative energy demand (kWh) for the product you build on the Home tab — nothing to enter here.</p>
+      <p class="hint">Embodied / cumulative energy demand (kWh) for the product you build on the Home tab, plus anything added above.</p>
       <div id="energy-empty" class="hint">Add at least one part on the Home tab to see the energy breakdown.</div>
       <div id="energy-body" style="display:none;">
         <table class="results-table">
