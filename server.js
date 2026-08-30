@@ -26,14 +26,21 @@ const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 // here as a server env var, never in any file served to the browser.
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
-// NVIDIA retires build.nvidia.com model endpoints on a schedule of their own -- the
-// original default here, meta/llama-3.1-70b-instruct, hit end-of-life on 2026-08-26 and
-// started returning 410 Gone. Replaced with 3.3 (same dense 70B family, no separate
-// prompt/tool-calling rework needed), but there's no way to guarantee this one won't
-// eventually meet the same fate. If it does: either bump this default again, or, faster,
-// just set NVIDIA_MODEL as a Render environment variable to override it without a code
-// deploy -- check https://build.nvidia.com for current model IDs.
-const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'meta/llama-3.3-70b-instruct';
+// NVIDIA appears to have retired its entire Llama-3.x line on build.nvidia.com in one
+// pass: meta/llama-3.1-70b-instruct (this default, originally) AND meta/llama-3.3-70b-
+// instruct (what it was bumped to on 2026-08-26 after the first one broke) both report
+// the identical end-of-life timestamp, 2026-08-26T09:00:00Z -- so this was a generation-
+// wide purge, not an isolated retirement, and picking another Llama-3.x id would likely
+// fail the same way. Now defaulting to NVIDIA's own Nemotron fine-tune instead (a
+// different hosted endpoint/lifecycle from the plain Meta checkpoint that just died),
+// but given the track record THIS IS NOT VERIFIED WORKING -- there's no NVIDIA_API_KEY
+// in the dev environment to test against live. If this also 410s: don't guess a fourth
+// model blind. Get the definitive, account-specific answer instead --
+//   PowerShell:  (Invoke-RestMethod -Uri "https://integrate.api.nvidia.com/v1/models" -Headers @{ Authorization = "Bearer $env:NVIDIA_API_KEY" }).data | Select-Object id
+// (or just open any model card at https://build.nvidia.com and copy its id) -- then set
+// NVIDIA_MODEL as a Render environment variable to that value; it takes effect
+// immediately, no code deploy needed.
+const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'nvidia/llama-3.3-nemotron-super-49b-v1';
 const NVIDIA_VISION_MODEL = process.env.NVIDIA_VISION_MODEL || 'meta/llama-3.2-90b-vision-instruct';
 if (!NVIDIA_API_KEY) {
   console.warn('NVIDIA_API_KEY not set — AI part extraction is disabled (everything else still works).');

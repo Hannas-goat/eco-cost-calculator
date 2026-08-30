@@ -199,15 +199,25 @@ To enable it:
 1. Get an API key from [build.nvidia.com](https://build.nvidia.com).
 2. Set `NVIDIA_API_KEY` as an environment variable on your Render service
    (Environment tab — same place as `JWT_SECRET`/`TURSO_*`).
-3. Optionally set `NVIDIA_MODEL` (defaults to `meta/llama-3.3-70b-instruct`),
-   `NVIDIA_VISION_MODEL` (defaults to `meta/llama-3.2-90b-vision-instruct` —
-   this default is the most likely to need changing, since vision-model
-   availability varies by plan/key), or `NVIDIA_BASE_URL`. NVIDIA retires
-   model endpoints periodically (the previous `NVIDIA_MODEL` default,
-   `meta/llama-3.1-70b-instruct`, hit end-of-life on 2026-08-26 and started
-   returning a 410 error) — if either default ever stops working, check
-   [build.nvidia.com](https://build.nvidia.com) for a current model ID and
-   set it here as an environment variable, no code change required.
+3. Optionally set `NVIDIA_MODEL` (defaults to
+   `nvidia/llama-3.3-nemotron-super-49b-v1`), `NVIDIA_VISION_MODEL` (defaults
+   to `meta/llama-3.2-90b-vision-instruct` — this one's the most likely to
+   need changing, since vision-model availability varies by plan/key), or
+   `NVIDIA_BASE_URL`.
+
+   NVIDIA has been retiring entire model generations on build.nvidia.com,
+   not just individual models — both `meta/llama-3.1-70b-instruct` and its
+   replacement `meta/llama-3.3-70b-instruct` hit end-of-life on the exact
+   same timestamp (2026-08-26T09:00:00Z), i.e. the whole Llama-3.x line was
+   pulled at once. If `NVIDIA_MODEL` ever starts returning a 410 error again,
+   don't assume the next guess will fare better — get the definitive,
+   account-specific list of what's currently available to your key:
+   ```powershell
+   (Invoke-RestMethod -Uri "https://integrate.api.nvidia.com/v1/models" -Headers @{ Authorization = "Bearer $env:NVIDIA_API_KEY" }).data | Select-Object id
+   ```
+   (or open any model card at [build.nvidia.com](https://build.nvidia.com) and
+   copy its id), then set `NVIDIA_MODEL` to that value as a Render
+   environment variable — it takes effect immediately, no code deploy needed.
 4. Optionally, for web search: get a free key from
    [tavily.com](https://tavily.com) and set it as `TAVILY_API_KEY`, same
    place as above.
