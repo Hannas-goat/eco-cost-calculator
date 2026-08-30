@@ -535,6 +535,7 @@ main {
 .row-hotspot { background: #fff7ec; }
 .hotspot-badge {
   display: inline-block;
+  flex-shrink: 0;
   background: #f2b34a;
   color: #4a2e00;
   font-size: 10.5px;
@@ -565,7 +566,25 @@ main {
 .chart-bar { height: 100%; border-radius: 6px; }
 .bar-burden { background: linear-gradient(90deg, #e8a15c, var(--red)); }
 .bar-credit { background: linear-gradient(90deg, #6fc98c, var(--green)); }
+.bar-histogram { background: linear-gradient(90deg, #f3b8cf, var(--tab-sensitivity)); }
 .chart-value { width: 90px; flex-shrink: 0; text-align: right; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+
+/* Tornado chart: unlike .chart-track above (a single bar from zero), each row here is a
+   RANGE (low -> high) positioned on a shared scale, with one baseline reference line (the
+   product's actual current total) common to every row -- so a bar's position relative to
+   that line shows whether the input's low/high case sits below or above what's built today. */
+.tornado-chart { display: flex; flex-direction: column; gap: 4px; }
+.tornado-row { display: flex; align-items: center; gap: 10px; padding: 3px 4px; }
+.tornado-label-group { width: 200px; flex-shrink: 0; display: flex; align-items: center; gap: 4px; min-width: 0; }
+.tornado-label { min-width: 0; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tornado-track { flex: 1; position: relative; height: 18px; background: var(--page-bg); border-radius: 6px; overflow: hidden; }
+.tornado-baseline { position: absolute; top: 0; bottom: 0; left: var(--tornado-base); width: 2px; background: var(--ink-soft); z-index: 2; }
+.tornado-bar { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; background: linear-gradient(90deg, #f3b8cf, var(--tab-sensitivity)); }
+.tornado-value { width: 200px; flex-shrink: 0; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+@media (max-width: 640px) {
+  .tornado-label { width: 110px; font-size: 11px; }
+  .tornado-value { width: 130px; font-size: 11px; }
+}
 
 /* --- Meters: single ratio against a limit (recycled %), same-ramp track+fill --- */
 .radial-meter {

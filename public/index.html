@@ -514,9 +514,67 @@
 
   <!-- ===== SENSITIVITY ANALYSIS (derived view of the Home product) ===== -->
   <section id="tab-sensitivity" class="tab-panel" style="display:none;">
+
     <section class="card">
-      <h2>📊 Sensitivity analysis</h2>
-      <p class="hint">Pick one input from the product you build on the Home tab and see how much each total moves if that input is off by the chosen percentage — the biggest swings are the inputs most worth double-checking.</p>
+      <h2>🌪️ Hotspot tornado — every input, ranked by impact</h2>
+      <p class="hint">Every input from the product you build on Home, varied and ranked by how much it swings the chosen total — the widest bar (top) is the input most worth double-checking. The vertical line marks the product as actually built today.</p>
+      <div id="tornado-empty" class="hint">Build a product on the Home tab first.</div>
+      <div id="tornado-body" style="display:none;">
+        <form class="add-form" onsubmit="return false;">
+          <select id="tornado-metric" onchange="renderTornadoChart()">
+            <option value="ecoCost">Eco-cost</option>
+            <option value="co2e">Carbon footprint</option>
+            <option value="water">Water consumption</option>
+            <option value="energyIn">Energy used in production</option>
+          </select>
+          <select id="tornado-mode" onchange="renderTornadoChart()">
+            <option value="percent">± percentage variation</option>
+            <option value="presence">Present vs absent (full removal)</option>
+          </select>
+          <select id="tornado-variation" onchange="renderTornadoChart()">
+            <option value="10">± 10%</option>
+            <option value="20" selected>± 20%</option>
+            <option value="50">± 50%</option>
+          </select>
+        </form>
+        <div id="tornado-chart" class="chart"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>🎲 Statistical simulation (Monte Carlo)</h2>
+      <p class="hint">Every input is randomized at once, 1,000 times, within the uncertainty band you choose (a uniform distribution around each input's current value) — showing the realistic spread of the outcome instead of one best-guess number, plus which inputs actually drive that spread when everything moves together.</p>
+      <div id="mc-empty" class="hint">Build a product on the Home tab first.</div>
+      <div id="mc-body" style="display:none;">
+        <form class="add-form" onsubmit="return false;">
+          <select id="mc-metric">
+            <option value="ecoCost">Eco-cost</option>
+            <option value="co2e">Carbon footprint</option>
+            <option value="water">Water consumption</option>
+            <option value="energyIn">Energy used in production</option>
+          </select>
+          <select id="mc-uncertainty">
+            <option value="10">± 10% uncertainty</option>
+            <option value="20" selected>± 20% uncertainty</option>
+            <option value="30">± 30% uncertainty</option>
+            <option value="50">± 50% uncertainty</option>
+          </select>
+          <button type="button" class="btn-primary" onclick="runMonteCarlo()">Run 1,000-iteration simulation →</button>
+        </form>
+        <div id="mc-results" style="display:none;">
+          <div class="stat-grid" id="mc-stat-grid"></div>
+          <h3>Distribution of possible totals</h3>
+          <div id="mc-histogram" class="chart"></div>
+          <h3>Sensitivity ranking <span class="hint-inline">(correlation between each input's randomness and the outcome — the strongest driver is the real hotspot once everything varies together)</span></h3>
+          <div id="mc-ranking" class="chart"></div>
+          <p class="hint-inline">Assumes each input varies independently and uniformly within the chosen band — a simplification for exploring uncertainty, not a substitute for measured data.</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>🔍 Check one input in detail</h2>
+      <p class="hint">Pick one input and see exactly how much each total moves if that input alone is off by the chosen percentage.</p>
       <div id="sens-empty" class="hint">Build a product on the Home tab first, then pick an input here.</div>
       <form id="sens-form" class="add-form" onsubmit="return false;" style="display:none;">
         <select id="sens-target"></select>
@@ -532,6 +590,7 @@
         <tbody id="sens-tbody"></tbody>
       </table>
     </section>
+
   </section>
 
 </main>

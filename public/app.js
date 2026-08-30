@@ -955,36 +955,44 @@ function renderSensitivityOptions() {
   if (!hasTargets) document.getElementById('sens-table').style.display = 'none';
 }
 
-function buildScaledProduct(targetId, factor) {
-  const clone = JSON.parse(JSON.stringify(product));
+// Mutates a product object in place, scaling one target's quantity by `factor` (0 = fully
+// removed, 1 = unchanged). Factored out of buildScaledProduct so the Monte Carlo
+// simulation below can apply many independent random factors to ONE cloned product per
+// iteration, instead of cloning once per target.
+function applyFactorToTarget(p, targetId, factor) {
   const [type, idStr] = targetId.split(':');
   const id = Number(idStr);
   if (type === 'part') {
-    const p = clone.parts.find(x => x.id === id);
-    if (p) p.weight *= factor;
+    const x = p.parts.find(v => v.id === id);
+    if (x) x.weight *= factor;
   } else if (type === 'assembly') {
-    if (clone.assembly) clone.assembly.mjPerKg *= factor;
+    if (p.assembly) p.assembly.mjPerKg *= factor;
   } else if (type === 'transport') {
-    const t = clone.transportLegs.find(x => x.id === id);
-    if (t) { t.distanceKm *= factor; t.tkm *= factor; }
+    const x = p.transportLegs.find(v => v.id === id);
+    if (x) { x.distanceKm *= factor; x.tkm *= factor; }
   } else if (type === 'custom') {
-    const c = clone.customLines.find(x => x.id === id);
-    if (c) {
-      c.ecoCost = (c.ecoCost || 0) * factor;
-      c.co2e = (c.co2e || 0) * factor;
-      c.water = (c.water || 0) * factor;
-      c.energyIn = (c.energyIn || 0) * factor;
+    const x = p.customLines.find(v => v.id === id);
+    if (x) {
+      x.ecoCost = (x.ecoCost || 0) * factor;
+      x.co2e = (x.co2e || 0) * factor;
+      x.water = (x.water || 0) * factor;
+      x.energyIn = (x.energyIn || 0) * factor;
     }
   } else if (type === 'trade') {
-    const t = clone.tradeLines.find(x => x.id === id);
-    if (t) {
-      t.importCost = (t.importCost || 0) * factor;
-      t.exportCost = (t.exportCost || 0) * factor;
+    const x = p.tradeLines.find(v => v.id === id);
+    if (x) {
+      x.importCost = (x.importCost || 0) * factor;
+      x.exportCost = (x.exportCost || 0) * factor;
     }
   } else if (type === 'chemical') {
-    const c = clone.chemicals.find(x => x.id === id);
-    if (c) c.quantity *= factor;
+    const x = p.chemicals.find(v => v.id === id);
+    if (x) x.quantity *= factor;
   }
+}
+
+function buildScaledProduct(targetId, factor) {
+  const clone = JSON.parse(JSON.stringify(product));
+  applyFactorToTarget(clone, targetId, factor);
   return clone;
 }
 
@@ -1008,6 +1016,182 @@ function runSensitivity() {
       <td class="num">${fmtMetric(up[key], key)}</td>
       <td class="num">${fmtMetric(hi - lo, key)}</td>
     </tr>`;
+  }).join('');
+}
+
+// --- Sensitivity: hotspot tornado (every input at once, deterministic) ---
+function updateSensitivityEmptyStates() {
+  const hasTargets = sensitivityTargets().length > 0;
+  document.getElementById('tornado-empty').style.display = hasTargets ? 'none' : '';
+  document.getElementById('tornado-body').style.display = hasTargets ? '' : 'none';
+  document.getElementById('mc-empty').style.display = hasTargets ? 'none' : '';
+  document.getElementById('mc-body').style.display = hasTargets ? '' : 'none';
+  document.getElementById('mc-results').style.display = 'none'; // stale results from a since-changed product
+}
+
+// Diverging bar chart: every row shares one scale and one baseline reference line (the
+// product's actual current total), so a bar's left/right position directly shows
+// whether that input's low/high case sits below or above what's actually built today.
+function renderTornado(containerId, rows, baseline, metricKey) {
+  if (!rows.length) { document.getElementById(containerId).innerHTML = '<p class="hint">Nothing to compare yet.</p>'; return; }
+  const allVals = rows.flatMap(r => [r.low, r.high]).concat([baseline]);
+  const minV = Math.min(...allVals);
+  const maxV = Math.max(...allVals);
+  const span = (maxV - minV) || 1;
+  const toPct = (v) => ((v - minV) / span) * 100;
+  const basePct = toPct(baseline);
+
+  document.getElementById(containerId).innerHTML = `
+    <div class="tornado-chart" style="--tornado-base:${basePct}%">
+      ${rows.map((r, i) => {
+        const loPct = toPct(Math.min(r.low, r.high));
+        const hiPct = toPct(Math.max(r.low, r.high));
+        return `<div class="tornado-row">
+          <span class="tornado-label-group">
+            <span class="tornado-label" title="${r.label}">${r.label}</span>${i === 0 ? '<span class="hotspot-badge">🔥 hotspot</span>' : ''}
+          </span>
+          <div class="tornado-track">
+            <div class="tornado-baseline"></div>
+            <div class="tornado-bar" style="left:${loPct}%; width:${Math.max(hiPct - loPct, 0.5)}%"></div>
+          </div>
+          <span class="tornado-value">${fmtMetric(r.low, metricKey)} → ${fmtMetric(r.high, metricKey)}</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+}
+
+function renderTornadoChart() {
+  const targets = sensitivityTargets();
+  if (!targets.length) return;
+  const metricKey = document.getElementById('tornado-metric').value;
+  const mode = document.getElementById('tornado-mode').value;
+  const pct = Number(document.getElementById('tornado-variation').value);
+  document.getElementById('tornado-variation').style.display = mode === 'presence' ? 'none' : '';
+
+  const baseline = totalsFor(computeLineItems(product))[metricKey];
+  const lowFactor = mode === 'presence' ? 0 : 1 - pct / 100;
+  const highFactor = mode === 'presence' ? 1 : 1 + pct / 100;
+
+  const rows = targets
+    .map((t) => {
+      const low = totalsFor(computeLineItems(buildScaledProduct(t.id, lowFactor)))[metricKey];
+      const high = totalsFor(computeLineItems(buildScaledProduct(t.id, highFactor)))[metricKey];
+      return { label: t.label, low, high, swing: Math.abs(high - low) };
+    })
+    .sort((a, b) => b.swing - a.swing);
+
+  renderTornado('tornado-chart', rows, baseline, metricKey);
+}
+
+// --- Sensitivity: statistical simulation (Monte Carlo) ---
+// Standard Pearson correlation between each input's random draw and the resulting
+// output across all iterations -- a simple, well-established correlation-based
+// sensitivity index (a lighter cousin of Standardized Regression Coefficients / Sobol
+// indices): the input whose randomness best "explains" the output's swings is the real
+// hotspot once everything is varying at the same time, not just one at a time.
+function pearsonCorrelation(xs, ys) {
+  const n = xs.length;
+  const meanX = xs.reduce((a, b) => a + b, 0) / n;
+  const meanY = ys.reduce((a, b) => a + b, 0) / n;
+  let num = 0, denX = 0, denY = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - meanX;
+    const dy = ys[i] - meanY;
+    num += dx * dy;
+    denX += dx * dx;
+    denY += dy * dy;
+  }
+  const den = Math.sqrt(denX * denY);
+  return den === 0 ? 0 : num / den;
+}
+
+const MONTE_CARLO_ITERATIONS = 1000;
+
+function runMonteCarlo() {
+  const targets = sensitivityTargets();
+  if (!targets.length) return;
+  const metricKey = document.getElementById('mc-metric').value;
+  const uncertainty = Number(document.getElementById('mc-uncertainty').value) / 100;
+  const n = MONTE_CARLO_ITERATIONS;
+
+  const totals = new Array(n);
+  const samples = {};
+  targets.forEach((t) => { samples[t.id] = new Array(n); });
+
+  for (let i = 0; i < n; i++) {
+    const clone = JSON.parse(JSON.stringify(product));
+    for (const t of targets) {
+      // Uniform draw in [1 - uncertainty, 1 + uncertainty] -- every input varies
+      // independently and simultaneously, unlike the one-at-a-time tornado above.
+      const factor = 1 + (Math.random() * 2 - 1) * uncertainty;
+      samples[t.id][i] = factor;
+      applyFactorToTarget(clone, t.id, factor);
+    }
+    totals[i] = totalsFor(computeLineItems(clone))[metricKey];
+  }
+
+  const sortedTotals = [...totals].sort((a, b) => a - b);
+  const mean = totals.reduce((a, b) => a + b, 0) / n;
+  const variance = totals.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
+  const stdDev = Math.sqrt(variance);
+  const percentile = (p) => sortedTotals[Math.min(n - 1, Math.floor((p / 100) * n))];
+  const baseline = totalsFor(computeLineItems(product))[metricKey];
+
+  const ranking = targets
+    .map((t) => ({ label: t.label, correlation: pearsonCorrelation(samples[t.id], totals) }))
+    .sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation));
+
+  renderMonteCarloStats({ baseline, mean, stdDev, min: sortedTotals[0], max: sortedTotals[n - 1], p10: percentile(10), p90: percentile(90), metricKey });
+  renderHistogram('mc-histogram', totals, metricKey);
+  renderSensitivityRanking('mc-ranking', ranking);
+  document.getElementById('mc-results').style.display = '';
+}
+
+function renderMonteCarloStats({ baseline, mean, stdDev, min, max, p10, p90, metricKey }) {
+  document.getElementById('mc-stat-grid').innerHTML = `
+    <div class="stat"><span class="stat-label">Baseline (as built)</span><span class="stat-value">${fmtMetric(baseline, metricKey)}</span></div>
+    <div class="stat stat-primary"><span class="stat-label">Simulated mean</span><span class="stat-value">${fmtMetric(mean, metricKey)}</span></div>
+    <div class="stat"><span class="stat-label">Std deviation</span><span class="stat-value">± ${fmtMetric(stdDev, metricKey)}</span></div>
+    <div class="stat"><span class="stat-label">P10 – P90 range</span><span class="stat-value">${fmtMetric(p10, metricKey)} – ${fmtMetric(p90, metricKey)}</span></div>
+    <div class="stat"><span class="stat-label">Min – Max</span><span class="stat-value">${fmtMetric(min, metricKey)} – ${fmtMetric(max, metricKey)}</span></div>
+  `;
+}
+
+function renderHistogram(containerId, values, metricKey, binCount = 14) {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = (max - min) || 1;
+  const binWidth = span / binCount;
+  const bins = new Array(binCount).fill(0);
+  for (const v of values) {
+    let idx = Math.floor((v - min) / binWidth);
+    if (idx >= binCount) idx = binCount - 1;
+    if (idx < 0) idx = 0;
+    bins[idx]++;
+  }
+  const maxCount = Math.max(...bins, 1);
+  document.getElementById(containerId).innerHTML = bins.map((count, i) => {
+    const lo = min + i * binWidth;
+    const hi = lo + binWidth;
+    const pct = (count / maxCount) * 100;
+    return `<div class="chart-row">
+      <span class="chart-label">${fmtMetric(lo, metricKey)}–${fmtMetric(hi, metricKey)}</span>
+      <div class="chart-track"><div class="chart-bar bar-histogram" style="width:${pct}%"></div></div>
+      <span class="chart-value">${count}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderSensitivityRanking(containerId, ranking) {
+  const maxAbs = Math.max(...ranking.map((r) => Math.abs(r.correlation)), 0.0001);
+  document.getElementById(containerId).innerHTML = ranking.map((r, i) => {
+    const pct = (Math.abs(r.correlation) / maxAbs) * 100;
+    const barClass = r.correlation < 0 ? 'bar-credit' : 'bar-burden';
+    return `<div class="chart-row">
+      <span class="chart-label">${r.label}</span>${i === 0 ? '<span class="hotspot-badge">🔥 hotspot</span>' : ''}
+      <div class="chart-track"><div class="chart-bar ${barClass}" style="width:${pct}%"></div></div>
+      <span class="chart-value">r = ${r.correlation.toFixed(2)}</span>
+    </div>`;
   }).join('');
 }
 
@@ -1404,6 +1588,8 @@ function renderAll() {
   renderRecycledTab();
   renderSensitivityOptions();
   document.getElementById('sens-table').style.display = 'none';
+  updateSensitivityEmptyStates();
+  renderTornadoChart();
 
   updateTransportPreview();
 }
