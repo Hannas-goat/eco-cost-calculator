@@ -928,17 +928,20 @@ function renderRecycledTab() {
 }
 
 // --- Sensitivity analysis: pick an input from the current product, vary it ---
-function sensitivityTargets() {
+// Accepts an optional product override (defaults to the current global `product`, same
+// pattern as computeLineItems) so the statistical-tests data-table fill below can run
+// this against a saved scenario's product without disturbing what's on Home.
+function sensitivityTargets(p = product) {
   const targets = [];
-  product.parts.forEach(p => targets.push({ id: `part:${p.id}`, label: `Part: ${p.name} (weight)` }));
-  if (product.assembly) targets.push({ id: 'assembly:0', label: 'Assembly energy (MJ/kg)' });
-  product.transportLegs.forEach(t => {
+  p.parts.forEach(x => targets.push({ id: `part:${x.id}`, label: `Part: ${x.name} (weight)` }));
+  if (p.assembly) targets.push({ id: 'assembly:0', label: 'Assembly energy (MJ/kg)' });
+  p.transportLegs.forEach(t => {
     const transport = findById(TRANSPORT, t.transportId);
     targets.push({ id: `transport:${t.id}`, label: `Transport: ${transport.name} (distance)` });
   });
-  product.customLines.forEach(c => targets.push({ id: `custom:${c.id}`, label: `Custom: ${c.name}` }));
-  product.tradeLines.forEach(t => targets.push({ id: `trade:${t.id}`, label: `Trade: made in ${t.madeIn} (import + export cost)` }));
-  product.chemicals.forEach(c => {
+  p.customLines.forEach(c => targets.push({ id: `custom:${c.id}`, label: `Custom: ${c.name}` }));
+  p.tradeLines.forEach(t => targets.push({ id: `trade:${t.id}`, label: `Trade: made in ${t.madeIn} (import + export cost)` }));
+  (p.chemicals || []).forEach(c => {
     const chemical = findById(CHEMICALS, c.chemicalId);
     if (chemical) targets.push({ id: `chemical:${c.id}`, label: `Chemical: ${chemical.name} (quantity)` });
   });
@@ -1110,19 +1113,16 @@ function pearsonCorrelation(xs, ys) {
 
 const MONTE_CARLO_ITERATIONS = 1000;
 
-function runMonteCarlo() {
-  const targets = sensitivityTargets();
-  if (!targets.length) return;
-  const metricKey = document.getElementById('mc-metric').value;
-  const uncertainty = Number(document.getElementById('mc-uncertainty').value) / 100;
-  const n = MONTE_CARLO_ITERATIONS;
-
+// Pure simulation core, factored out of runMonteCarlo() so the statistics-tests data
+// table below can generate real samples for a saved scenario's product too, not just
+// whatever's currently built on Home.
+function simulateMonteCarloTotals(p, targets, metricKey, uncertainty, n) {
   const totals = new Array(n);
   const samples = {};
   targets.forEach((t) => { samples[t.id] = new Array(n); });
 
   for (let i = 0; i < n; i++) {
-    const clone = JSON.parse(JSON.stringify(product));
+    const clone = JSON.parse(JSON.stringify(p));
     for (const t of targets) {
       // Uniform draw in [1 - uncertainty, 1 + uncertainty] -- every input varies
       // independently and simultaneously, unlike the one-at-a-time tornado above.
@@ -1132,6 +1132,17 @@ function runMonteCarlo() {
     }
     totals[i] = totalsFor(computeLineItems(clone))[metricKey];
   }
+  return { totals, samples };
+}
+
+function runMonteCarlo() {
+  const targets = sensitivityTargets();
+  if (!targets.length) return;
+  const metricKey = document.getElementById('mc-metric').value;
+  const uncertainty = Number(document.getElementById('mc-uncertainty').value) / 100;
+  const n = MONTE_CARLO_ITERATIONS;
+
+  const { totals, samples } = simulateMonteCarloTotals(product, targets, metricKey, uncertainty, n);
 
   const sortedTotals = [...totals].sort((a, b) => a - b);
   const mean = totals.reduce((a, b) => a + b, 0) / n;
@@ -1196,6 +1207,636 @@ function renderSensitivityRanking(containerId, ranking) {
       <span class="chart-value">r = ${r.correlation.toFixed(2)}</span>
     </div>`;
   }).join('');
+}
+
+// --- Statistics: hypothesis testing, chi-square, one-way & two-way ANOVA ---
+// Real p-values, not decorative ones -- these need the actual t/chi-square/F CDFs, which
+// need the regularized incomplete beta and incomplete gamma functions (standard
+// Numerical-Recipes-style implementations). Verified during development against known
+// textbook critical values (e.g. chi2(3.841, df=1) ~= 0.05, F(4.10, 2, 10) ~= 0.05,
+// t(2.228, df=10) ~= 0.05) and against two exact identities: a two-group one-way ANOVA's
+// F must equal a pooled two-sample t-test's t^2 with an identical p-value, and this
+// general R x C chi-square implementation must match the closed-form 2x2 formula.
+function logGammaFn(x) {
+  const g = 7;
+  const c = [
+    0.99999999999980993, 676.5203681218851, -1259.1392167224028,
+    771.32342877765313, -176.61502916214059, 12.507343278686905,
+    -0.13857109526572012, 9.9843695780195716e-6, 1.5056327351493116e-7,
+  ];
+  if (x < 0.5) return Math.log(Math.PI / Math.sin(Math.PI * x)) - logGammaFn(1 - x);
+  x -= 1;
+  let a = c[0];
+  const t = x + g + 0.5;
+  for (let i = 1; i < g + 2; i++) a += c[i] / (x + i);
+  return 0.5 * Math.log(2 * Math.PI) + (x + 0.5) * Math.log(t) - t + Math.log(a);
+}
+
+function lowerIncompleteGammaSeries(s, x) {
+  if (x <= 0) return 0;
+  let sum = 1 / s;
+  let term = sum;
+  let n = s;
+  for (let i = 0; i < 500; i++) {
+    n += 1;
+    term *= x / n;
+    sum += term;
+    if (Math.abs(term) < Math.abs(sum) * 1e-15) break;
+  }
+  return sum * Math.exp(-x + s * Math.log(x) - logGammaFn(s));
+}
+
+function upperIncompleteGammaCF(s, x) {
+  const FPMIN = 1e-300;
+  let b = x + 1 - s;
+  let c = 1 / FPMIN;
+  let d = 1 / b;
+  let h = d;
+  for (let i = 1; i < 500; i++) {
+    const an = -i * (i - s);
+    b += 2;
+    d = an * d + b;
+    if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = b + an / c;
+    if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < 1e-15) break;
+  }
+  return Math.exp(-x + s * Math.log(x) - logGammaFn(s)) * h;
+}
+
+function regularizedGammaP(s, x) {
+  if (x < 0 || s <= 0) return NaN;
+  if (x === 0) return 0;
+  if (x < s + 1) return lowerIncompleteGammaSeries(s, x);
+  return 1 - upperIncompleteGammaCF(s, x);
+}
+
+function betacf(x, a, b) {
+  const MAXIT = 200, EPS = 3e-16, FPMIN = 1e-300;
+  const qab = a + b, qap = a + 1, qam = a - 1;
+  let c = 1;
+  let d = 1 - (qab * x) / qap;
+  if (Math.abs(d) < FPMIN) d = FPMIN;
+  d = 1 / d;
+  let h = d;
+  for (let m = 1; m <= MAXIT; m++) {
+    const m2 = 2 * m;
+    let aa = (m * (b - m) * x) / ((qam + m2) * (a + m2));
+    d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    h *= d * c;
+    aa = (-(a + m) * (qab + m) * x) / ((a + m2) * (qap + m2));
+    d = 1 + aa * d; if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = 1 + aa / c; if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d;
+    const del = d * c;
+    h *= del;
+    if (Math.abs(del - 1) < EPS) break;
+  }
+  return h;
+}
+
+function regularizedIncompleteBeta(x, a, b) {
+  if (x <= 0) return 0;
+  if (x >= 1) return 1;
+  const bt = Math.exp(logGammaFn(a + b) - logGammaFn(a) - logGammaFn(b) + a * Math.log(x) + b * Math.log(1 - x));
+  if (x < (a + 1) / (a + b + 2)) return (bt * betacf(x, a, b)) / a;
+  return 1 - (bt * betacf(1 - x, b, a)) / b;
+}
+
+function tTestPValue(t, df) {
+  const x = df / (df + t * t);
+  return regularizedIncompleteBeta(x, df / 2, 0.5);
+}
+
+function fTestPValue(f, d1, d2) {
+  if (f <= 0) return 1;
+  const x = d2 / (d2 + d1 * f);
+  return regularizedIncompleteBeta(x, d2 / 2, d1 / 2);
+}
+
+function chiSquarePValue(x, k) {
+  return 1 - regularizedGammaP(k / 2, x / 2);
+}
+
+function meanOf(arr) { return arr.reduce((a, b) => a + b, 0) / arr.length; }
+function varianceOf(arr) { const m = meanOf(arr); return arr.reduce((s, x) => s + (x - m) ** 2, 0) / (arr.length - 1); }
+
+function oneSampleTTest(sample, mu0) {
+  const n = sample.length;
+  const m = meanOf(sample);
+  const sd = Math.sqrt(varianceOf(sample));
+  const se = sd / Math.sqrt(n);
+  const t = (m - mu0) / se;
+  const df = n - 1;
+  return { t, df, p: tTestPValue(t, df), mean: m, sd };
+}
+
+// Welch's t-test (does not assume equal variances) -- the safer general-purpose default
+// (also what R's t.test() uses by default), even though it doesn't reduce to a clean
+// F = t^2 identity against one-way ANOVA the way the equal-variance/pooled version does.
+function twoSampleTTest(a, b) {
+  const na = a.length, nb = b.length;
+  const ma = meanOf(a), mb = meanOf(b);
+  const va = varianceOf(a), vb = varianceOf(b);
+  const se2 = va / na + vb / nb;
+  const t = (ma - mb) / Math.sqrt(se2);
+  const df = se2 ** 2 / ((va / na) ** 2 / (na - 1) + (vb / nb) ** 2 / (nb - 1));
+  return { t, df, p: tTestPValue(t, df), meanA: ma, meanB: mb };
+}
+
+function chiSquareGoodnessOfFit(counts) {
+  const labels = Object.keys(counts);
+  const total = labels.reduce((s, l) => s + counts[l], 0);
+  const expected = total / labels.length;
+  let chi2 = 0;
+  for (const l of labels) chi2 += (counts[l] - expected) ** 2 / expected;
+  const df = labels.length - 1;
+  return { chi2, df, p: chiSquarePValue(chi2, df) };
+}
+
+function chiSquareIndependence(rowLabels, colLabels, table) {
+  const rowSums = table.map((r) => r.reduce((a, b) => a + b, 0));
+  const colSums = colLabels.map((_, j) => table.reduce((s, r) => s + r[j], 0));
+  const N = rowSums.reduce((a, b) => a + b, 0);
+  const expectedTable = table.map((row, i) => row.map((_, j) => (rowSums[i] * colSums[j]) / N));
+  let chi2 = 0;
+  for (let i = 0; i < table.length; i++) {
+    for (let j = 0; j < table[i].length; j++) chi2 += (table[i][j] - expectedTable[i][j]) ** 2 / expectedTable[i][j];
+  }
+  const df = (table.length - 1) * (colLabels.length - 1);
+  return { chi2, df, p: chiSquarePValue(chi2, df), expectedTable };
+}
+
+function oneWayANOVA(groups) {
+  const allVals = groups.flat();
+  const grandMean = meanOf(allVals);
+  const N = allVals.length;
+  const k = groups.length;
+  let ssBetween = 0, ssWithin = 0;
+  for (const g of groups) {
+    const gm = meanOf(g);
+    ssBetween += g.length * (gm - grandMean) ** 2;
+    for (const x of g) ssWithin += (x - gm) ** 2;
+  }
+  const dfBetween = k - 1;
+  const dfWithin = N - k;
+  const F = (ssBetween / dfBetween) / (ssWithin / dfWithin);
+  return { F, dfBetween, dfWithin, p: fTestPValue(F, dfBetween, dfWithin), ssBetween, ssWithin };
+}
+
+// Balanced two-way ANOVA (equal replicates per Group A x Group B cell) -- the standard
+// textbook sum-of-squares decomposition. The caller is responsible for checking balance
+// first (see runTwoWayAnovaTest) since an unbalanced design needs a different method
+// (Type I/II/III sequential sums of squares) that this doesn't implement.
+function twoWayANOVA(rows) {
+  const aLevels = [...new Set(rows.map((r) => r.a))];
+  const bLevels = [...new Set(rows.map((r) => r.b))];
+  const grandMean = meanOf(rows.map((r) => r.value));
+  const N = rows.length;
+  const cell = (av, bv) => rows.filter((r) => r.a === av && r.b === bv).map((r) => r.value);
+
+  let ssA = 0, ssB = 0, ssCells = 0, ssTotal = 0;
+  for (const r of rows) ssTotal += (r.value - grandMean) ** 2;
+  for (const av of aLevels) {
+    const vals = rows.filter((r) => r.a === av).map((r) => r.value);
+    ssA += vals.length * (meanOf(vals) - grandMean) ** 2;
+  }
+  for (const bv of bLevels) {
+    const vals = rows.filter((r) => r.b === bv).map((r) => r.value);
+    ssB += vals.length * (meanOf(vals) - grandMean) ** 2;
+  }
+  for (const av of aLevels) {
+    for (const bv of bLevels) {
+      const vals = cell(av, bv);
+      ssCells += vals.length * (meanOf(vals) - grandMean) ** 2;
+    }
+  }
+  const ssAB = ssCells - ssA - ssB;
+  const ssError = ssTotal - ssCells;
+
+  const dfA = aLevels.length - 1;
+  const dfB = bLevels.length - 1;
+  const dfAB = dfA * dfB;
+  const dfError = N - aLevels.length * bLevels.length;
+  const msError = ssError / dfError;
+
+  const Fa = (ssA / dfA) / msError;
+  const Fb = (ssB / dfB) / msError;
+  const Fab = (ssAB / dfAB) / msError;
+  return {
+    A: { F: Fa, df1: dfA, df2: dfError, p: fTestPValue(Fa, dfA, dfError) },
+    B: { F: Fb, df1: dfB, df2: dfError, p: fTestPValue(Fb, dfB, dfError) },
+    AB: { F: Fab, df1: dfAB, df2: dfError, p: fTestPValue(Fab, dfAB, dfError) },
+  };
+}
+
+function fmtPValue(p) {
+  if (!Number.isFinite(p)) return '—';
+  return p < 0.0001 ? p.toExponential(2) : fmt(p, 4);
+}
+
+function renderTestResult({ title, rows, significant, conclusion }) {
+  return `
+    <div class="stats-result ${significant ? 'stats-result-sig' : 'stats-result-nonsig'}">
+      <h4>${title}</h4>
+      <table class="results-table"><tbody>
+        ${rows.map(([label, val]) => `<tr><td>${label}</td><td class="num">${val}</td></tr>`).join('')}
+      </tbody></table>
+      <p class="hint"><strong>${significant ? '✓ Statistically significant' : '— Not statistically significant'}</strong> — ${conclusion}</p>
+    </div>`;
+}
+
+// --- Statistics data table: Value / Group A / Group B, quick-filled from real app data
+// or entered by hand. Not part of `product` -- a standalone workspace, reset on reload
+// like the Monte Carlo panel above. ---
+let statsRows = [];
+let nextStatsRowId = 1;
+
+function currentStatsGroups() {
+  const groups = {};
+  for (const r of statsRows) {
+    if (!groups[r.groupA]) groups[r.groupA] = [];
+    groups[r.groupA].push(r.value);
+  }
+  return groups;
+}
+
+function addStatsRow() {
+  const value = Number(document.getElementById('stats-value').value);
+  const groupA = document.getElementById('stats-group-a').value.trim();
+  const groupB = document.getElementById('stats-group-b').value.trim();
+  if (!groupA || Number.isNaN(value)) {
+    alert('Enter a numeric value and at least Group A.');
+    return;
+  }
+  statsRows.push({ id: nextStatsRowId++, value, groupA, groupB: groupB || null });
+  document.getElementById('stats-value').value = '';
+  document.getElementById('stats-group-a').value = '';
+  document.getElementById('stats-group-b').value = '';
+  renderStatsTable();
+}
+
+function removeStatsRow(id) {
+  statsRows = statsRows.filter((r) => r.id !== id);
+  renderStatsTable();
+}
+
+function clearStatsRows() {
+  if (statsRows.length && !confirm('Clear the whole data table?')) return;
+  statsRows = [];
+  renderStatsTable();
+}
+
+// Value = each part's actual computed eco-cost contribution; Group A = material
+// category; Group B = end-of-life route -- real, naturally two-factor data straight from
+// the product you build on Home.
+function fillStatsFromParts() {
+  const items = computeLineItems(product).filter((i) => i.kind === 'part');
+  if (!items.length) { alert('Add at least one part on the Home tab first.'); return; }
+  items.forEach((item, i) => {
+    const part = product.parts[i];
+    const material = findById(MATERIALS, part.materialId);
+    const eol = part.endOfLifeId ? findById(END_OF_LIFE, part.endOfLifeId) : null;
+    statsRows.push({ id: nextStatsRowId++, value: item.ecoCost, groupA: material.category, groupB: eol ? eol.name : 'None modelled' });
+  });
+  renderStatsTable();
+}
+
+// Runs a smaller Monte Carlo simulation (200 iterations, same +-20% uncertainty band as
+// the main panel's default) per saved scenario, so each scenario becomes a real group of
+// samples -- not just one number -- suitable for an actual t-test/ANOVA instead of
+// comparing single point estimates.
+async function fillStatsFromScenarios() {
+  let scenarios;
+  if (currentUser) {
+    const { ok, data } = await api('/api/scenarios');
+    if (!ok || !data.scenarios.length) { alert('Save at least 2 scenarios on the Home tab first.'); return; }
+    scenarios = [];
+    for (const s of data.scenarios) {
+      const detail = await api(`/api/scenarios/${encodeURIComponent(s.id)}`);
+      if (detail.ok) scenarios.push(detail.data.scenario);
+    }
+  } else {
+    scenarios = loadLocalScenarios();
+  }
+  if (scenarios.length < 2) { alert('Save at least 2 scenarios on the Home tab first, to compare them here.'); return; }
+
+  for (const s of scenarios) {
+    const targets = sensitivityTargets(s.product);
+    if (!targets.length) continue;
+    const { totals } = simulateMonteCarloTotals(s.product, targets, 'ecoCost', 0.2, 200);
+    for (const v of totals) statsRows.push({ id: nextStatsRowId++, value: v, groupA: s.name, groupB: null });
+  }
+  renderStatsTable();
+}
+
+function renderStatsTable() {
+  const empty = document.getElementById('stats-table-empty');
+  const wrap = document.getElementById('stats-table-wrap');
+  if (!empty || !wrap) return;
+  if (!statsRows.length) {
+    empty.style.display = '';
+    wrap.style.display = 'none';
+    return;
+  }
+  empty.style.display = 'none';
+  wrap.style.display = '';
+  document.getElementById('stats-count-note').textContent = `${statsRows.length} row(s).`;
+  document.getElementById('stats-tbody').innerHTML = statsRows.map((r) => `
+    <tr>
+      <td class="num">${fmt(r.value, 4)}</td>
+      <td>${r.groupA}</td>
+      <td>${r.groupB || '—'}</td>
+      <td><button type="button" class="btn-remove" onclick="removeStatsRow(${r.id})">✕</button></td>
+    </tr>`).join('');
+}
+
+function runHypothesisTest() {
+  const resultEl = document.getElementById('ht-result');
+  if (!statsRows.length) { resultEl.innerHTML = '<p class="hint">Add data to the table above first.</p>'; return; }
+  const mode = document.getElementById('ht-mode').value;
+
+  if (mode === 'one-sample') {
+    const mu0 = Number(document.getElementById('ht-mu0').value);
+    if (Number.isNaN(mu0)) { resultEl.innerHTML = '<p class="hint">Enter a hypothesized value to test against.</p>'; return; }
+    const sample = statsRows.map((r) => r.value);
+    if (sample.length < 2) { resultEl.innerHTML = '<p class="hint">Need at least 2 rows.</p>'; return; }
+    const res = oneSampleTTest(sample, mu0);
+    resultEl.innerHTML = renderTestResult({
+      title: `One-sample t-test (H<sub>0</sub>: mean = ${fmt(mu0, 4)})`,
+      rows: [['Sample mean', fmt(res.mean, 4)], ['t statistic', fmt(res.t, 4)], ['Degrees of freedom', res.df], ['p-value', fmtPValue(res.p)]],
+      significant: res.p < 0.05,
+      conclusion: res.p < 0.05
+        ? `Reject H<sub>0</sub> at α = 0.05 — the sample mean is statistically significantly different from ${fmt(mu0, 4)}.`
+        : `Fail to reject H<sub>0</sub> at α = 0.05 — not enough evidence the true mean differs from ${fmt(mu0, 4)}.`,
+    });
+  } else {
+    const groups = currentStatsGroups();
+    const labels = Object.keys(groups);
+    if (labels.length !== 2) { resultEl.innerHTML = `<p class="hint">Two-sample mode needs exactly 2 distinct Group A values in the table (found ${labels.length}).</p>`; return; }
+    if (groups[labels[0]].length < 2 || groups[labels[1]].length < 2) { resultEl.innerHTML = '<p class="hint">Each group needs at least 2 rows.</p>'; return; }
+    const res = twoSampleTTest(groups[labels[0]], groups[labels[1]]);
+    resultEl.innerHTML = renderTestResult({
+      title: `Two-sample t-test (Welch's): "${labels[0]}" vs "${labels[1]}"`,
+      rows: [
+        [`Mean (${labels[0]})`, fmt(res.meanA, 4)], [`Mean (${labels[1]})`, fmt(res.meanB, 4)],
+        ['t statistic', fmt(res.t, 4)], ['Degrees of freedom', fmt(res.df, 2)], ['p-value', fmtPValue(res.p)],
+      ],
+      significant: res.p < 0.05,
+      conclusion: res.p < 0.05
+        ? `Reject H<sub>0</sub> at α = 0.05 — "${labels[0]}" and "${labels[1]}" have statistically significantly different means.`
+        : 'Fail to reject H<sub>0</sub> at α = 0.05 — not enough evidence the two means differ.',
+    });
+  }
+}
+
+function renderContingencyTable(rowLabels, colLabels, table, expectedTable) {
+  return `
+    <h4 style="margin-top:16px;">Observed count (expected count)</h4>
+    <table class="results-table">
+      <thead><tr><th></th>${colLabels.map((c) => `<th>${c}</th>`).join('')}</tr></thead>
+      <tbody>${rowLabels.map((rl, i) => `<tr><td>${rl}</td>${table[i].map((v, j) => `<td class="num">${v} (${fmt(expectedTable[i][j], 1)})</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>`;
+}
+
+function runChiSquareTest() {
+  const resultEl = document.getElementById('chi-result');
+  if (!statsRows.length) { resultEl.innerHTML = '<p class="hint">Add data to the table above first.</p>'; return; }
+  const hasGroupB = statsRows.some((r) => r.groupB);
+
+  if (hasGroupB) {
+    // Only rows that actually HAVE a Group B count toward either axis -- a Group A value
+    // that only ever appears without a Group B would otherwise become a table row with
+    // a zero marginal total, dividing by zero in the expected-count formula.
+    const rowsWithB = statsRows.filter((r) => r.groupB);
+    const rowLabels = [...new Set(rowsWithB.map((r) => r.groupA))];
+    const colLabels = [...new Set(rowsWithB.map((r) => r.groupB))];
+    if (rowLabels.length < 2 || colLabels.length < 2) { resultEl.innerHTML = '<p class="hint">Need at least 2 distinct values in both Group A and Group B for a test of independence.</p>'; return; }
+    const table = rowLabels.map((rl) => colLabels.map((cl) => rowsWithB.filter((r) => r.groupA === rl && r.groupB === cl).length));
+    const res = chiSquareIndependence(rowLabels, colLabels, table);
+    resultEl.innerHTML = renderTestResult({
+      title: 'Chi-square test of independence (Group A × Group B)',
+      rows: [['χ² statistic', fmt(res.chi2, 4)], ['Degrees of freedom', res.df], ['p-value', fmtPValue(res.p)]],
+      significant: res.p < 0.05,
+      conclusion: res.p < 0.05
+        ? 'Reject H<sub>0</sub> at α = 0.05 — Group A and Group B are not independent (there is an association).'
+        : 'Fail to reject H<sub>0</sub> at α = 0.05 — no evidence of association between Group A and Group B.',
+    }) + renderContingencyTable(rowLabels, colLabels, table, res.expectedTable);
+  } else {
+    const groups = currentStatsGroups();
+    const labels = Object.keys(groups);
+    if (labels.length < 2) { resultEl.innerHTML = '<p class="hint">Need at least 2 distinct Group A values.</p>'; return; }
+    const counts = {};
+    labels.forEach((l) => { counts[l] = groups[l].length; });
+    const res = chiSquareGoodnessOfFit(counts);
+    resultEl.innerHTML = renderTestResult({
+      title: 'Chi-square goodness-of-fit (Group A counts vs. a uniform expectation)',
+      rows: [['χ² statistic', fmt(res.chi2, 4)], ['Degrees of freedom', res.df], ['p-value', fmtPValue(res.p)]],
+      significant: res.p < 0.05,
+      conclusion: res.p < 0.05
+        ? 'Reject H<sub>0</sub> at α = 0.05 — the counts across groups are not uniformly distributed.'
+        : 'Fail to reject H<sub>0</sub> at α = 0.05 — consistent with a uniform distribution across groups.',
+    });
+  }
+}
+
+function runOneWayAnovaTest() {
+  const resultEl = document.getElementById('anova1-result');
+  const groups = currentStatsGroups();
+  const labels = Object.keys(groups);
+  if (labels.length < 2) { resultEl.innerHTML = '<p class="hint">Need at least 2 distinct Group A values (3+ recommended).</p>'; return; }
+  if (labels.some((l) => groups[l].length < 2)) { resultEl.innerHTML = '<p class="hint">Every group needs at least 2 rows.</p>'; return; }
+  const res = oneWayANOVA(labels.map((l) => groups[l]));
+  resultEl.innerHTML = renderTestResult({
+    title: `One-way ANOVA across ${labels.length} groups`,
+    rows: [
+      ...labels.map((l) => [`Mean (${l}, n=${groups[l].length})`, fmt(meanOf(groups[l]), 4)]),
+      ['F statistic', fmt(res.F, 4)], ['df (between, within)', `${res.dfBetween}, ${res.dfWithin}`], ['p-value', fmtPValue(res.p)],
+    ],
+    significant: res.p < 0.05,
+    conclusion: res.p < 0.05
+      ? 'Reject H<sub>0</sub> at α = 0.05 — at least one group mean differs from the others.'
+      : 'Fail to reject H<sub>0</sub> at α = 0.05 — no evidence the group means differ.',
+  });
+}
+
+function runTwoWayAnovaTest() {
+  const resultEl = document.getElementById('anova2-result');
+  const rows = statsRows.filter((r) => r.groupB);
+  const aLevels = [...new Set(rows.map((r) => r.groupA))];
+  const bLevels = [...new Set(rows.map((r) => r.groupB))];
+  if (aLevels.length < 2 || bLevels.length < 2) { resultEl.innerHTML = '<p class="hint">Need at least 2 distinct values in both Group A and Group B, with Group B filled in on every row.</p>'; return; }
+
+  const cellCounts = aLevels.map((a) => bLevels.map((b) => rows.filter((r) => r.groupA === a && r.groupB === b).length));
+  const flatCounts = cellCounts.flat();
+  const balanced = flatCounts.every((c) => c === flatCounts[0]) && flatCounts[0] >= 2;
+  if (!balanced) {
+    resultEl.innerHTML = `<p class="hint">⚠ This needs a balanced design — the same number of rows (at least 2) in every Group A × Group B combination. Current counts: ${aLevels.map((a, i) => `${a}: [${cellCounts[i].join(', ')}]`).join(' · ')}.</p>`;
+    return;
+  }
+  const res = twoWayANOVA(rows.map((r) => ({ value: r.value, a: r.groupA, b: r.groupB })));
+  resultEl.innerHTML = renderTestResult({
+    title: 'Two-way ANOVA: Group A × Group B',
+    rows: [
+      ['Factor A — F', fmt(res.A.F, 4)], ['Factor A — df', `${res.A.df1}, ${res.A.df2}`], ['Factor A — p-value', fmtPValue(res.A.p)],
+      ['Factor B — F', fmt(res.B.F, 4)], ['Factor B — df', `${res.B.df1}, ${res.B.df2}`], ['Factor B — p-value', fmtPValue(res.B.p)],
+      ['A × B interaction — F', fmt(res.AB.F, 4)], ['A × B interaction — df', `${res.AB.df1}, ${res.AB.df2}`], ['A × B interaction — p-value', fmtPValue(res.AB.p)],
+    ],
+    significant: res.A.p < 0.05 || res.B.p < 0.05 || res.AB.p < 0.05,
+    conclusion: `Factor A is ${res.A.p < 0.05 ? 'significant' : 'not significant'}; Factor B is ${res.B.p < 0.05 ? 'significant' : 'not significant'}; the A × B interaction is ${res.AB.p < 0.05 ? 'significant' : 'not significant'} (α = 0.05).`,
+  });
+}
+
+// --- Flexible chart builder: freeform multi-series plotting (bar/line/scatter), with
+// per-series color and legend-label control -- independent of the data table above,
+// though "Load from data table" can seed it from Group A there. ---
+let chartSeries = [];
+let nextChartSeriesId = 1;
+const CHART_DEFAULT_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#4a3aa7', '#e34948', '#008300'];
+
+function escapeXml(s) {
+  return String(s).replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' }[c]));
+}
+
+function addChartSeries() {
+  const label = document.getElementById('chart-series-label').value.trim() || `Series ${chartSeries.length + 1}`;
+  const color = document.getElementById('chart-series-color').value;
+  const type = document.getElementById('chart-series-type').value;
+  const values = document.getElementById('chart-series-values').value.split(',').map((s) => Number(s.trim())).filter((n) => !Number.isNaN(n));
+  if (!values.length) { alert('Enter at least one number (comma-separated).'); return; }
+  chartSeries.push({ id: nextChartSeriesId++, label, color, type, values });
+  document.getElementById('chart-series-label').value = '';
+  document.getElementById('chart-series-values').value = '';
+  document.getElementById('chart-series-color').value = CHART_DEFAULT_COLORS[chartSeries.length % CHART_DEFAULT_COLORS.length];
+  renderChartSeriesList();
+  renderFlexChart();
+}
+
+function removeChartSeries(id) {
+  chartSeries = chartSeries.filter((s) => s.id !== id);
+  renderChartSeriesList();
+  renderFlexChart();
+}
+
+function loadChartFromStatsTable() {
+  const groups = currentStatsGroups();
+  const labels = Object.keys(groups);
+  if (!labels.length) { alert('Add data to the statistics table above first.'); return; }
+  chartSeries = labels.map((l, i) => ({ id: nextChartSeriesId++, label: l, color: CHART_DEFAULT_COLORS[i % CHART_DEFAULT_COLORS.length], type: 'bar', values: groups[l] }));
+  renderChartSeriesList();
+  renderFlexChart();
+}
+
+function clearChartSeries() {
+  if (chartSeries.length && !confirm('Clear all chart series?')) return;
+  chartSeries = [];
+  renderChartSeriesList();
+  renderFlexChart();
+}
+
+function updateChartSeriesLabel(id, value) { const s = chartSeries.find((x) => x.id === id); if (s) { s.label = value; renderFlexChart(); } }
+function updateChartSeriesColor(id, value) { const s = chartSeries.find((x) => x.id === id); if (s) { s.color = value; renderFlexChart(); } }
+function updateChartSeriesType(id, value) { const s = chartSeries.find((x) => x.id === id); if (s) { s.type = value; renderFlexChart(); } }
+
+function renderChartSeriesList() {
+  const el = document.getElementById('chart-series-list');
+  if (!el) return;
+  el.innerHTML = chartSeries.length
+    ? chartSeries.map((s) => `
+      <div class="chart-series-row">
+        <input type="color" value="${s.color}" onchange="updateChartSeriesColor(${s.id}, this.value)" title="Series color">
+        <input type="text" value="${escapeXml(s.label)}" onchange="updateChartSeriesLabel(${s.id}, this.value)" placeholder="Legend label" class="chart-series-label-input">
+        <select onchange="updateChartSeriesType(${s.id}, this.value)">
+          <option value="bar" ${s.type === 'bar' ? 'selected' : ''}>Bar</option>
+          <option value="line" ${s.type === 'line' ? 'selected' : ''}>Line</option>
+          <option value="scatter" ${s.type === 'scatter' ? 'selected' : ''}>Scatter</option>
+        </select>
+        <span class="hint-inline">${s.values.length} point(s)</span>
+        <button type="button" class="btn-remove" onclick="removeChartSeries(${s.id})">✕</button>
+      </div>`).join('')
+    : '<p class="hint">No series yet — add one below, or load from the data table above.</p>';
+}
+
+function renderFlexChart() {
+  const container = document.getElementById('flex-chart-svg-wrap');
+  if (!container) return;
+  if (!chartSeries.length) { container.innerHTML = '<p class="hint">Nothing to plot yet.</p>'; return; }
+  const title = document.getElementById('chart-title').value || '';
+  const yLabel = document.getElementById('chart-y-label').value || '';
+
+  const width = 640, height = 360;
+  const margin = { top: title ? 36 : 16, right: 20, bottom: 40, left: 56 };
+  const plotW = width - margin.left - margin.right;
+  const plotH = height - margin.top - margin.bottom;
+
+  const allValues = chartSeries.flatMap((s) => s.values);
+  let yMin = Math.min(0, ...allValues);
+  let yMax = Math.max(...allValues);
+  if (yMin === yMax) { yMin -= 1; yMax += 1; }
+  const yPad = (yMax - yMin) * 0.08;
+  yMin -= yPad; yMax += yPad;
+  const maxLen = Math.max(...chartSeries.map((s) => s.values.length));
+
+  const xForIndex = (i) => margin.left + (maxLen <= 1 ? plotW / 2 : (i / (maxLen - 1)) * plotW);
+  const yForValue = (v) => margin.top + plotH - ((v - yMin) / (yMax - yMin)) * plotH;
+
+  let gridSvg = '';
+  const tickCount = 5;
+  for (let i = 0; i <= tickCount; i++) {
+    const v = yMin + ((yMax - yMin) * i) / tickCount;
+    const y = yForValue(v);
+    gridSvg += `<line x1="${margin.left}" y1="${y.toFixed(1)}" x2="${width - margin.right}" y2="${y.toFixed(1)}" stroke="var(--line)" stroke-width="1" />`;
+    gridSvg += `<text x="${margin.left - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--ink-soft)">${fmt(v, 1)}</text>`;
+  }
+  if (yMin < 0 && yMax > 0) {
+    const y0 = yForValue(0);
+    gridSvg += `<line x1="${margin.left}" y1="${y0.toFixed(1)}" x2="${width - margin.right}" y2="${y0.toFixed(1)}" stroke="var(--ink-soft)" stroke-width="1.5" />`;
+  }
+
+  const barGroupWidth = plotW / Math.max(maxLen, 1);
+  const barSeriesCount = chartSeries.filter((s) => s.type === 'bar').length || 1;
+  let marksSvg = '';
+  let barSeriesIndex = 0;
+  for (const s of chartSeries) {
+    if (s.type === 'bar') {
+      const barW = (barGroupWidth * 0.7) / barSeriesCount;
+      s.values.forEach((v, i) => {
+        const groupX = margin.left + i * barGroupWidth + barGroupWidth * 0.15;
+        const x = groupX + barSeriesIndex * barW;
+        const yZero = yForValue(0);
+        const yTop = yForValue(Math.max(v, 0));
+        const barHeight = Math.max(Math.abs(yForValue(v) - yZero), 0.5);
+        const barY = v >= 0 ? yTop : yZero;
+        marksSvg += `<rect x="${x.toFixed(1)}" y="${barY.toFixed(1)}" width="${barW.toFixed(1)}" height="${barHeight.toFixed(1)}" fill="${s.color}" rx="2"><title>${escapeXml(s.label)}: ${fmt(v, 4)}</title></rect>`;
+      });
+      barSeriesIndex++;
+    } else if (s.type === 'line') {
+      const points = s.values.map((v, i) => `${xForIndex(i).toFixed(1)},${yForValue(v).toFixed(1)}`).join(' ');
+      marksSvg += `<polyline points="${points}" fill="none" stroke="${s.color}" stroke-width="2.5" />`;
+      s.values.forEach((v, i) => {
+        marksSvg += `<circle cx="${xForIndex(i).toFixed(1)}" cy="${yForValue(v).toFixed(1)}" r="3.5" fill="${s.color}"><title>${escapeXml(s.label)}: ${fmt(v, 4)}</title></circle>`;
+      });
+    } else {
+      s.values.forEach((v, i) => {
+        marksSvg += `<circle cx="${xForIndex(i).toFixed(1)}" cy="${yForValue(v).toFixed(1)}" r="4.5" fill="${s.color}" fill-opacity="0.75"><title>${escapeXml(s.label)}: ${fmt(v, 4)}</title></circle>`;
+      });
+    }
+  }
+
+  const legendSvg = chartSeries.map((s, i) => `
+    <g transform="translate(${margin.left + i * 140}, ${height - 10})">
+      <rect width="11" height="11" rx="2" fill="${s.color}" />
+      <text x="16" y="10" font-size="11" fill="var(--ink)">${escapeXml(s.label)}</text>
+    </g>`).join('');
+  const titleSvg = title ? `<text x="${width / 2}" y="20" text-anchor="middle" font-size="14" font-weight="700" fill="var(--ink)">${escapeXml(title)}</text>` : '';
+  const yLabelSvg = yLabel ? `<text x="14" y="${margin.top + plotH / 2}" text-anchor="middle" font-size="11" fill="var(--ink-soft)" transform="rotate(-90, 14, ${margin.top + plotH / 2})">${escapeXml(yLabel)}</text>` : '';
+
+  container.innerHTML = `<svg viewBox="0 0 ${width} ${height + 24}" class="flex-chart-svg" role="img">${titleSvg}${yLabelSvg}${gridSvg}${marksSvg}${legendSvg}</svg>`;
 }
 
 // --- CSV export (client-side, no dependencies) ---
@@ -2238,5 +2879,7 @@ ensureExchangeRates().then(() => {
 });
 renderAll();
 renderAccountUI();
+renderChartSeriesList();
+renderFlexChart();
 refreshCurrentUser().then(() => Promise.all([renderScenarios(), loadCustomMaterials(), loadCustomChemicals()]));
 showTab('home');

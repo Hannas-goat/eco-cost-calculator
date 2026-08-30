@@ -655,6 +655,90 @@
       </table>
     </section>
 
+    <section class="card">
+      <h2>🧮 Statistical tests</h2>
+      <p class="hint">A flexible data table for hypothesis testing, chi-square, and one-way/two-way ANOVA — fill it from your build below, or type in your own numbers. Group A is required for every test; Group B is only needed for chi-square's test of independence and for two-way ANOVA.</p>
+
+      <div class="add-form">
+        <button type="button" class="btn-ghost" onclick="fillStatsFromParts()">⬇ Fill from current parts</button>
+        <button type="button" class="btn-ghost" onclick="fillStatsFromScenarios()">⬇ Fill from saved scenarios (Monte Carlo)</button>
+        <button type="button" class="btn-secondary" onclick="clearStatsRows()">🗑 Clear table</button>
+      </div>
+
+      <form class="add-form" onsubmit="return false;">
+        <input type="number" id="stats-value" placeholder="Value" step="any">
+        <input type="text" id="stats-group-a" placeholder="Group A (required)">
+        <input type="text" id="stats-group-b" placeholder="Group B (optional)">
+        <button type="button" class="btn-primary" onclick="addStatsRow()">Add row →</button>
+      </form>
+
+      <div id="stats-table-empty" class="hint">No data yet — fill from your build above, or add rows by hand.</div>
+      <div id="stats-table-wrap" style="display:none;">
+        <p class="hint-inline" id="stats-count-note"></p>
+        <table class="results-table" id="stats-table">
+          <thead><tr><th>Value</th><th>Group A</th><th>Group B</th><th></th></tr></thead>
+          <tbody id="stats-tbody"></tbody>
+        </table>
+      </div>
+
+      <h3>Hypothesis test (t-test)</h3>
+      <form class="add-form" onsubmit="return false;">
+        <select id="ht-mode" onchange="document.getElementById('ht-mu0-row').style.display = this.value === 'one-sample' ? '' : 'none';">
+          <option value="one-sample">One-sample (vs. a fixed value)</option>
+          <option value="two-sample">Two-sample (compare 2 Group A values)</option>
+        </select>
+        <span id="ht-mu0-row"><input type="number" id="ht-mu0" placeholder="Hypothesized value" step="any"></span>
+        <button type="button" class="btn-primary" onclick="runHypothesisTest()">Run test →</button>
+      </form>
+      <div id="ht-result"></div>
+
+      <h3>Chi-square test</h3>
+      <p class="hint-inline">Uses Group A × Group B counts (test of independence) if Group B is filled in on any row, otherwise Group A counts against a uniform expectation (goodness-of-fit).</p>
+      <div class="export-row"><button type="button" class="btn-primary" onclick="runChiSquareTest()">Run test →</button></div>
+      <div id="chi-result"></div>
+
+      <h3>One-way ANOVA</h3>
+      <p class="hint-inline">Compares means across every distinct Group A value.</p>
+      <div class="export-row"><button type="button" class="btn-primary" onclick="runOneWayAnovaTest()">Run test →</button></div>
+      <div id="anova1-result"></div>
+
+      <h3>Two-way ANOVA</h3>
+      <p class="hint-inline">Needs Group B filled in on every row, with the same number of rows (at least 2) in every Group A × Group B combination — a balanced design.</p>
+      <div class="export-row"><button type="button" class="btn-primary" onclick="runTwoWayAnovaTest()">Run test →</button></div>
+      <div id="anova2-result"></div>
+    </section>
+
+    <section class="card">
+      <h2>📈 Chart builder</h2>
+      <p class="hint">Freeform plotting — add any series of numbers, pick bar/line/scatter, choose its color, and edit its legend label. "Load from data table" turns each Group A above into its own series.</p>
+
+      <div class="add-form">
+        <button type="button" class="btn-ghost" onclick="loadChartFromStatsTable()">⬇ Load from data table</button>
+        <button type="button" class="btn-secondary" onclick="clearChartSeries()">🗑 Clear all series</button>
+      </div>
+
+      <form class="add-form" onsubmit="return false;">
+        <input type="text" id="chart-series-label" placeholder="Series name (legend label)">
+        <input type="color" id="chart-series-color" value="#2a78d6">
+        <select id="chart-series-type">
+          <option value="bar">Bar</option>
+          <option value="line">Line</option>
+          <option value="scatter">Scatter</option>
+        </select>
+        <input type="text" id="chart-series-values" placeholder="Values, comma-separated (e.g. 3, 5.2, 4, 6.1)">
+        <button type="button" class="btn-primary" onclick="addChartSeries()">Add series →</button>
+      </form>
+
+      <div id="chart-series-list"></div>
+
+      <div class="add-form">
+        <input type="text" id="chart-title" placeholder="Chart title" oninput="renderFlexChart()">
+        <input type="text" id="chart-y-label" placeholder="Y-axis label" oninput="renderFlexChart()">
+      </div>
+
+      <div id="flex-chart-svg-wrap" class="chart"></div>
+    </section>
+
   </section>
 
 </main>

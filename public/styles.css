@@ -592,6 +592,18 @@ main {
   .tornado-value { width: 130px; font-size: 11px; }
 }
 
+/* --- Statistical test results --- */
+.stats-result { margin: 10px 0 20px; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--page-bg); }
+.stats-result h4 { margin: 0 0 8px; font-size: 14px; }
+.stats-result-sig { border-color: var(--green); background: var(--green-pale); }
+.stats-result-nonsig { border-color: var(--line); }
+
+/* --- Flexible chart builder --- */
+.chart-series-row { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.chart-series-row input[type="color"] { width: 34px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; flex-shrink: 0; }
+.chart-series-label-input { flex: 1 1 140px; min-width: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; font-size: 13px; }
+.flex-chart-svg { width: 100%; height: auto; margin-top: 12px; }
+
 /* --- Meters: single ratio against a limit (recycled %), same-ramp track+fill --- */
 .radial-meter {
   width: 108px;
