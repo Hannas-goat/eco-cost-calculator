@@ -57,7 +57,7 @@ body {
 }
 .top-bar-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .top-bar-title {
-  font-size: 20px;
+  font-size: 32px;
   font-weight: 800;
   color: var(--ink);
   white-space: nowrap;
@@ -72,8 +72,8 @@ body {
    its own, so a square container behind it would just show through at the
    corners. */
 .logo-slot {
-  width: 96px;
-  height: 96px;
+  width: 140px;
+  height: 140px;
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
@@ -362,6 +362,21 @@ main {
   resize: vertical;
 }
 .proj-goal-input:focus { outline: 2px solid var(--green); outline-offset: 1px; }
+
+.db-datatype-select {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  margin-top: 8px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13.5px;
+  background: var(--card-bg);
+}
+.db-datatype-select option { padding: 6px 8px; border-radius: 4px; }
+.db-datatype-select:focus { outline: 2px solid var(--green); outline-offset: 1px; }
 
 .impact-toggle-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .impact-toggle-btn {

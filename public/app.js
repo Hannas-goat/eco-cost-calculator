@@ -1440,17 +1440,19 @@ function goToSignup() {
 }
 
 async function authSignUp() {
-  const displayName = document.getElementById('ac-name').value.trim();
+  const firstName = document.getElementById('ac-first-name').value.trim();
+  const lastName = document.getElementById('ac-last-name').value.trim();
   const email = document.getElementById('ac-email').value.trim();
   const password = document.getElementById('ac-password').value;
   const phone = document.getElementById('ac-phone').value.trim();
   const company = document.getElementById('ac-company').value.trim();
   const position = document.getElementById('ac-position').value;
   const msg = document.getElementById('ac-message');
-  if (!displayName || !email || !phone || !company || !position) {
+  if (!firstName || !lastName || !email || !phone || !company || !position) {
     msg.textContent = 'Fill in every field to create your account.';
     return;
   }
+  const displayName = `${firstName} ${lastName}`.trim();
   if (password.length < 6) {
     msg.textContent = 'Password needs at least 6 characters.';
     return;
@@ -1508,7 +1510,8 @@ async function importLocalScenarios() {
 let customMaterials = [];
 
 // Matches the server's DATA_TYPES allow-list (server.js) -- kept in sync by hand, same
-// as POSITION_OPTIONS/the signup form's position list already are.
+// as POSITION_OPTIONS/the signup form's position list already are. The <select multiple>
+// itself is the source of truth for what's selected -- no separate JS state to track.
 const DATABASE_DATA_TYPES = [
   { id: 'energy-consumption', label: 'Energy consumption' },
   { id: 'cost', label: 'Cost' },
@@ -1517,20 +1520,6 @@ const DATABASE_DATA_TYPES = [
   { id: 'waste-management', label: 'Waste management' },
   { id: 'natural-resources', label: 'Natural resources' },
 ];
-let selectedDbDataTypes = [];
-
-function renderDbDataTypeToggles() {
-  document.getElementById('db-datatype-toggle-row').innerHTML = DATABASE_DATA_TYPES.map(t => {
-    const active = selectedDbDataTypes.includes(t.id);
-    return `<button type="button" class="impact-toggle-btn${active ? ' active' : ''}" aria-pressed="${active}" onclick="toggleDbDataType('${t.id}')">${t.label}</button>`;
-  }).join('');
-}
-
-function toggleDbDataType(id) {
-  const i = selectedDbDataTypes.indexOf(id);
-  if (i === -1) selectedDbDataTypes.push(id); else selectedDbDataTypes.splice(i, 1);
-  renderDbDataTypeToggles();
-}
 
 function dataTypeLabels(ids) {
   if (!ids || !ids.length) return '—';
@@ -1586,7 +1575,8 @@ async function uploadDatabaseFile() {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('unitSystem', document.getElementById('db-source-units').value);
-  formData.append('dataTypes', JSON.stringify(selectedDbDataTypes));
+  const selectedDataTypes = Array.from(document.getElementById('db-datatype-select').selectedOptions).map(o => o.value);
+  formData.append('dataTypes', JSON.stringify(selectedDataTypes));
 
   status.textContent = 'Uploading and cleaning…';
   const res = await fetch('/api/database/upload', { method: 'POST', body: formData, credentials: 'same-origin' });
@@ -1771,6 +1761,5 @@ ensureExchangeRates().then(() => {
 });
 renderAll();
 renderAccountUI();
-renderDbDataTypeToggles();
 refreshCurrentUser().then(() => Promise.all([renderScenarios(), loadCustomMaterials()]));
 showTab('home');

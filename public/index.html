@@ -106,7 +106,8 @@
         </div>
 
         <form id="ac-form-signup" class="add-form" onsubmit="return false;">
-          <input type="text" id="ac-name" placeholder="Preferred name" autocomplete="name">
+          <input type="text" id="ac-first-name" placeholder="First name" autocomplete="given-name">
+          <input type="text" id="ac-last-name" placeholder="Last name" autocomplete="family-name">
           <input type="email" id="ac-email" placeholder="Email" autocomplete="email">
           <input type="password" id="ac-password" placeholder="Password (min 6 characters)" autocomplete="new-password">
           <input type="tel" id="ac-phone" placeholder="Phone number" autocomplete="tel">
@@ -316,8 +317,15 @@
         <button type="button" class="btn-primary" onclick="uploadDatabaseFile()">Clean &amp; add to my database →</button>
       </form>
 
-      <p class="hint-inline" style="margin: 10px 0 0;">Data type (select all that apply to this file — a per-row "Data type" column, if present, overrides this)</p>
-      <div class="impact-toggle-row" id="db-datatype-toggle-row"></div>
+      <p class="hint-inline" style="margin: 10px 0 0;">Data type <span class="hint-inline">(ctrl/cmd-click, or shift-click, to select more than one — a per-row "Data type" column, if present, overrides this)</span></p>
+      <select id="db-datatype-select" class="db-datatype-select" multiple size="6" aria-label="Data type(s) in this file">
+        <option value="energy-consumption">Energy consumption</option>
+        <option value="cost">Cost</option>
+        <option value="ghg-emissions">Greenhouse gas emissions</option>
+        <option value="water-pollution">Water pollution</option>
+        <option value="waste-management">Waste management</option>
+        <option value="natural-resources">Natural resources</option>
+      </select>
 
       <div id="db-upload-status" class="hint"></div>
       <p class="hint-inline">Columns are matched flexibly (e.g. "Cost ($/lb)" or "Eco-cost (EUR/kg)" both work) — expected fields: name/material, category, eco-cost, CO2e, water, energy, recycled %, data type. Add a "unit" or "data type" column per row to override the file-wide settings above for mixed files.</p>
