@@ -104,6 +104,12 @@ async function initDb() {
     source_unit_system TEXT NOT NULL DEFAULT 'metric',
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
   )`);
+  // Added after custom_materials already existed in production -- see the users-table
+  // migration above for why this is column-by-column rather than a fresh CREATE TABLE.
+  const materialsInfo = await db.execute(`PRAGMA table_info(custom_materials)`);
+  if (!materialsInfo.rows.some((r) => r.name === 'data_types')) {
+    await db.execute(`ALTER TABLE custom_materials ADD COLUMN data_types TEXT NOT NULL DEFAULT '[]'`);
+  }
 }
 
 const app = express();
@@ -317,7 +323,8 @@ function normalizeHeader(h) {
 
 // Real-world headers carry unit annotations ("CO2e (kg/kg)", "Cost ($/lb)"), so headers
 // are matched by substring rather than exact equality -- longest synonym first, so a
-// more specific synonym always wins over a shorter one that happens to also match.
+// more specific synonym always wins over a shorter one that happens to also match (e.g.
+// "Data type" must resolve to dataTypes, not the shorter "type" synonym under category).
 const DATABASE_FIELD_SYNONYMS = {
   name: ['material', 'name', 'item', 'product', 'description'],
   category: ['category', 'type', 'group', 'class'],
@@ -327,6 +334,7 @@ const DATABASE_FIELD_SYNONYMS = {
   energyIn: ['embodiedenergy', 'energyin', 'energyuse', 'energy'],
   recycledPct: ['recycledcontent', 'recycledpct', 'recycled'],
   unit: ['unitsystem', 'units', 'unit', 'basis'],
+  dataTypes: ['datatypes', 'datatype'],
 };
 const HEADER_SYNONYM_PAIRS = Object.entries(DATABASE_FIELD_SYNONYMS)
   .flatMap(([field, synonyms]) => synonyms.map((synonym) => ({ field, synonym })))
@@ -335,6 +343,41 @@ const HEADER_SYNONYM_PAIRS = Object.entries(DATABASE_FIELD_SYNONYMS)
 function matchHeaderField(normalizedHeader) {
   const hit = HEADER_SYNONYM_PAIRS.find((p) => normalizedHeader.includes(p.synonym));
   return hit ? hit.field : null;
+}
+
+// What kind of sustainability data a material row represents -- a material can carry
+// several at once (e.g. a row with both eco-cost and CO2e is "Cost" + "Greenhouse gas
+// emissions"), so this is a multi-select tag, not a single classification.
+const DATA_TYPES = [
+  { id: 'energy-consumption', label: 'Energy consumption' },
+  { id: 'cost', label: 'Cost' },
+  { id: 'ghg-emissions', label: 'Greenhouse gas emissions' },
+  { id: 'water-pollution', label: 'Water pollution' },
+  { id: 'waste-management', label: 'Waste management' },
+  { id: 'natural-resources', label: 'Natural resources' },
+];
+const DATA_TYPE_IDS = new Set(DATA_TYPES.map((t) => t.id));
+const DATA_TYPE_LABEL_TO_ID = new Map(DATA_TYPES.map((t) => [t.label.toLowerCase(), t.id]));
+
+function normalizeDataTypeToken(token) {
+  const s = String(token || '').trim().toLowerCase();
+  if (!s) return null;
+  if (DATA_TYPE_IDS.has(s)) return s;
+  if (DATA_TYPE_LABEL_TO_ID.has(s)) return DATA_TYPE_LABEL_TO_ID.get(s);
+  const compact = s.replace(/[^a-z0-9]/g, '');
+  if (compact === 'ghg' || compact === 'greenhousegas' || compact === 'greenhousegasemissions') return 'ghg-emissions';
+  for (const t of DATA_TYPES) {
+    if (compact === t.id.replace(/-/g, '') || compact === t.label.toLowerCase().replace(/[^a-z0-9]/g, '')) return t.id;
+  }
+  return null;
+}
+
+// Accepts either an array (the upload form's file-wide selection) or a raw delimited
+// cell value (a per-row "data type" column override, e.g. "Cost, GHG emissions").
+function normalizeDataTypesList(value) {
+  if (value == null) return [];
+  const tokens = Array.isArray(value) ? value : String(value).split(/[,;|]/);
+  return [...new Set(tokens.map(normalizeDataTypeToken).filter(Boolean))];
 }
 
 function parseNum(v) {
@@ -355,7 +398,7 @@ function rowsFromFile(buffer, ext) {
 // Converts one raw uploaded row into the app's canonical metric-per-kg basis. co2e and
 // recycledPct are ratios (mass/mass, a plain percentage) so they never need conversion;
 // only fields with an actual per-kg-or-per-lb basis do.
-function standardizeRow(rawRow, defaultUnitSystem) {
+function standardizeRow(rawRow, defaultUnitSystem, defaultDataTypes) {
   const mapped = {};
   for (const [header, value] of Object.entries(rawRow)) {
     const field = matchHeaderField(normalizeHeader(header));
@@ -379,6 +422,8 @@ function standardizeRow(rawRow, defaultUnitSystem) {
     return { skipped: 'no numeric eco-cost/CO2e/water/energy value found' };
   }
 
+  const dataTypes = mapped.dataTypes !== undefined ? normalizeDataTypesList(mapped.dataTypes) : defaultDataTypes;
+
   return {
     row: {
       name,
@@ -389,11 +434,14 @@ function standardizeRow(rawRow, defaultUnitSystem) {
       energyIn: energyIn == null ? null : energyIn * massFactor,
       recycledPct,
       sourceUnitSystem: unitSystem,
+      dataTypes,
     },
   };
 }
 
 function toPublicCustomMaterial(row) {
+  let dataTypes = [];
+  try { dataTypes = JSON.parse(row.data_types || '[]'); } catch (e) { dataTypes = []; }
   return {
     id: row.id,
     category: row.category,
@@ -404,6 +452,7 @@ function toPublicCustomMaterial(row) {
     energyIn: row.energy_in,
     recycledPct: row.recycled_pct,
     sourceUnitSystem: row.source_unit_system,
+    dataTypes,
   };
 }
 
@@ -416,6 +465,8 @@ app.post('/api/database/upload', requireAuth, dbUpload.single('file'), async (re
     return res.status(400).json({ error: `Unsupported file type "${ext || file.mimetype}". Upload a .csv, .txt, .xlsx, or .xls file.` });
   }
   const defaultUnitSystem = normalizeUnitSystem(req.body.unitSystem) || 'metric';
+  let defaultDataTypes = [];
+  try { defaultDataTypes = normalizeDataTypesList(JSON.parse(req.body.dataTypes || '[]')); } catch (e) { /* leave empty */ }
 
   let rawRows;
   try {
@@ -435,16 +486,16 @@ app.post('/api/database/upload', requireAuth, dbUpload.single('file'), async (re
 
   const inserted = [];
   for (const [i, rawRow] of usableRows.entries()) {
-    const { row, skipped } = standardizeRow(rawRow, defaultUnitSystem);
+    const { row, skipped } = standardizeRow(rawRow, defaultUnitSystem, defaultDataTypes);
     if (skipped) {
       warnings.push(`Row ${i + 2}: skipped (${skipped}).`);
       continue;
     }
     const id = crypto.randomUUID();
     await db.execute({
-      sql: `INSERT INTO custom_materials (id, user_id, category, name, eco_cost, co2e, water, energy_in, recycled_pct, source_unit_system)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [id, req.userId, row.category, row.name, row.ecoCost, row.co2e, row.water, row.energyIn, row.recycledPct, row.sourceUnitSystem],
+      sql: `INSERT INTO custom_materials (id, user_id, category, name, eco_cost, co2e, water, energy_in, recycled_pct, source_unit_system, data_types)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [id, req.userId, row.category, row.name, row.ecoCost, row.co2e, row.water, row.energyIn, row.recycledPct, row.sourceUnitSystem, JSON.stringify(row.dataTypes)],
     });
     inserted.push({ id, ...row });
   }
@@ -457,7 +508,7 @@ app.post('/api/database/upload', requireAuth, dbUpload.single('file'), async (re
 
 app.get('/api/database/materials', requireAuth, async (req, res) => {
   const result = await db.execute({
-    sql: 'SELECT id, category, name, eco_cost, co2e, water, energy_in, recycled_pct, source_unit_system FROM custom_materials WHERE user_id = ? ORDER BY created_at ASC',
+    sql: 'SELECT id, category, name, eco_cost, co2e, water, energy_in, recycled_pct, source_unit_system, data_types FROM custom_materials WHERE user_id = ? ORDER BY created_at ASC',
     args: [req.userId],
   });
   res.json({ materials: result.rows.map(toPublicCustomMaterial) });

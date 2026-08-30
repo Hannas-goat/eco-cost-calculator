@@ -1507,6 +1507,36 @@ async function importLocalScenarios() {
 // the management table on the Database tab. ---
 let customMaterials = [];
 
+// Matches the server's DATA_TYPES allow-list (server.js) -- kept in sync by hand, same
+// as POSITION_OPTIONS/the signup form's position list already are.
+const DATABASE_DATA_TYPES = [
+  { id: 'energy-consumption', label: 'Energy consumption' },
+  { id: 'cost', label: 'Cost' },
+  { id: 'ghg-emissions', label: 'Greenhouse gas emissions' },
+  { id: 'water-pollution', label: 'Water pollution' },
+  { id: 'waste-management', label: 'Waste management' },
+  { id: 'natural-resources', label: 'Natural resources' },
+];
+let selectedDbDataTypes = [];
+
+function renderDbDataTypeToggles() {
+  document.getElementById('db-datatype-toggle-row').innerHTML = DATABASE_DATA_TYPES.map(t => {
+    const active = selectedDbDataTypes.includes(t.id);
+    return `<button type="button" class="impact-toggle-btn${active ? ' active' : ''}" aria-pressed="${active}" onclick="toggleDbDataType('${t.id}')">${t.label}</button>`;
+  }).join('');
+}
+
+function toggleDbDataType(id) {
+  const i = selectedDbDataTypes.indexOf(id);
+  if (i === -1) selectedDbDataTypes.push(id); else selectedDbDataTypes.splice(i, 1);
+  renderDbDataTypeToggles();
+}
+
+function dataTypeLabels(ids) {
+  if (!ids || !ids.length) return '—';
+  return ids.map(id => (DATABASE_DATA_TYPES.find(t => t.id === id) || {}).label || id).join(', ');
+}
+
 function applyCustomMaterialsToCatalog(list) {
   // Drop any previously-injected entries first, so switching accounts (or signing out)
   // never leaves a stale user's materials mixed into the catalog.
@@ -1556,6 +1586,7 @@ async function uploadDatabaseFile() {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('unitSystem', document.getElementById('db-source-units').value);
+  formData.append('dataTypes', JSON.stringify(selectedDbDataTypes));
 
   status.textContent = 'Uploading and cleaning…';
   const res = await fetch('/api/database/upload', { method: 'POST', body: formData, credentials: 'same-origin' });
@@ -1611,6 +1642,7 @@ function renderCustomMaterialsTable() {
     <tr>
       <td>${m.name}</td>
       <td class="detail-cell">${m.category}</td>
+      <td class="detail-cell">${dataTypeLabels(m.dataTypes)}</td>
       <td class="num">${m.ecoCost == null ? '—' : fmtCurrencyRate(m.ecoCost, 'kg')}</td>
       <td class="num">${m.co2e == null ? '—' : fmt(m.co2e) + ' kg/kg'}</td>
       <td class="num">${m.water == null ? '—' : fmtWater(m.water) + '/kg'}</td>
@@ -1739,5 +1771,6 @@ ensureExchangeRates().then(() => {
 });
 renderAll();
 renderAccountUI();
+renderDbDataTypeToggles();
 refreshCurrentUser().then(() => Promise.all([renderScenarios(), loadCustomMaterials()]));
 showTab('home');

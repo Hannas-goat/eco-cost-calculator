@@ -297,7 +297,6 @@
 
   </section>
 
-  <!-- ===== CARBON FOOTPRINT (derived view of the Home product) ===== -->
   <!-- ===== DATABASE (upload & standardize your own sustainability data) ===== -->
   <section id="tab-database" class="tab-panel" style="display:none;">
 
@@ -316,8 +315,12 @@
         </select>
         <button type="button" class="btn-primary" onclick="uploadDatabaseFile()">Clean &amp; add to my database →</button>
       </form>
+
+      <p class="hint-inline" style="margin: 10px 0 0;">Data type (select all that apply to this file — a per-row "Data type" column, if present, overrides this)</p>
+      <div class="impact-toggle-row" id="db-datatype-toggle-row"></div>
+
       <div id="db-upload-status" class="hint"></div>
-      <p class="hint-inline">Columns are matched flexibly (e.g. "Cost ($/lb)" or "Eco-cost (EUR/kg)" both work) — expected fields: name/material, category, eco-cost, CO2e, water, energy, recycled %. Add a "unit" column per row to override the file-wide setting above for mixed-unit files.</p>
+      <p class="hint-inline">Columns are matched flexibly (e.g. "Cost ($/lb)" or "Eco-cost (EUR/kg)" both work) — expected fields: name/material, category, eco-cost, CO2e, water, energy, recycled %, data type. Add a "unit" or "data type" column per row to override the file-wide settings above for mixed files.</p>
     </section>
 
     <section class="card">
@@ -325,7 +328,7 @@
       <p class="hint">Stored standardized to metric (€/kg, kg CO2e/kg, L/kg, kWh/kg) regardless of the source file, shown below in your selected display units. <span id="db-count-note"></span></p>
       <div id="db-empty" class="hint">No custom materials yet — upload a file above to get started.</div>
       <table class="results-table" id="db-table" style="display:none;">
-        <thead><tr><th>Name</th><th>Category</th><th>Eco-cost</th><th>CO2e</th><th>Water</th><th>Energy</th><th>Recycled %</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Category</th><th>Data type</th><th>Eco-cost</th><th>CO2e</th><th>Water</th><th>Energy</th><th>Recycled %</th><th></th></tr></thead>
         <tbody id="db-tbody"></tbody>
       </table>
       <div class="export-row">
@@ -335,6 +338,7 @@
 
   </section>
 
+  <!-- ===== CARBON FOOTPRINT (derived view of the Home product) ===== -->
   <section id="tab-carbon" class="tab-panel" style="display:none;">
     <section class="card">
       <h2>☁️ Carbon footprint</h2>
