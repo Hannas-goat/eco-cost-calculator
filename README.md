@@ -199,10 +199,15 @@ To enable it:
 1. Get an API key from [build.nvidia.com](https://build.nvidia.com).
 2. Set `NVIDIA_API_KEY` as an environment variable on your Render service
    (Environment tab — same place as `JWT_SECRET`/`TURSO_*`).
-3. Optionally set `NVIDIA_MODEL` (defaults to `meta/llama-3.1-70b-instruct`),
+3. Optionally set `NVIDIA_MODEL` (defaults to `meta/llama-3.3-70b-instruct`),
    `NVIDIA_VISION_MODEL` (defaults to `meta/llama-3.2-90b-vision-instruct` —
    this default is the most likely to need changing, since vision-model
-   availability varies by plan/key), or `NVIDIA_BASE_URL`.
+   availability varies by plan/key), or `NVIDIA_BASE_URL`. NVIDIA retires
+   model endpoints periodically (the previous `NVIDIA_MODEL` default,
+   `meta/llama-3.1-70b-instruct`, hit end-of-life on 2026-08-26 and started
+   returning a 410 error) — if either default ever stops working, check
+   [build.nvidia.com](https://build.nvidia.com) for a current model ID and
+   set it here as an environment variable, no code change required.
 4. Optionally, for web search: get a free key from
    [tavily.com](https://tavily.com) and set it as `TAVILY_API_KEY`, same
    place as above.

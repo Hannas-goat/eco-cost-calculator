@@ -26,7 +26,14 @@ const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 // here as a server env var, never in any file served to the browser.
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY;
 const NVIDIA_BASE_URL = process.env.NVIDIA_BASE_URL || 'https://integrate.api.nvidia.com/v1';
-const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'meta/llama-3.1-70b-instruct';
+// NVIDIA retires build.nvidia.com model endpoints on a schedule of their own -- the
+// original default here, meta/llama-3.1-70b-instruct, hit end-of-life on 2026-08-26 and
+// started returning 410 Gone. Replaced with 3.3 (same dense 70B family, no separate
+// prompt/tool-calling rework needed), but there's no way to guarantee this one won't
+// eventually meet the same fate. If it does: either bump this default again, or, faster,
+// just set NVIDIA_MODEL as a Render environment variable to override it without a code
+// deploy -- check https://build.nvidia.com for current model IDs.
+const NVIDIA_MODEL = process.env.NVIDIA_MODEL || 'meta/llama-3.3-70b-instruct';
 const NVIDIA_VISION_MODEL = process.env.NVIDIA_VISION_MODEL || 'meta/llama-3.2-90b-vision-instruct';
 if (!NVIDIA_API_KEY) {
   console.warn('NVIDIA_API_KEY not set — AI part extraction is disabled (everything else still works).');
