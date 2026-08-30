@@ -758,8 +758,11 @@ const ENERGY_IDS = { empty: 'energy-empty', body: 'energy-body', tbody: 'energy-
 
 function renderPresetCheck(total) {
   const el = document.getElementById('preset-check');
-  if (!activePresetKey || total === null) { el.style.display = 'none'; return; }
-  const preset = PRESET_EXAMPLES[activePresetKey];
+  const preset = activePresetKey ? PRESET_EXAMPLES[activePresetKey] : null;
+  // Illustrative presets (no independently-verified reference total to check against,
+  // unlike the felt-tip-pen/pencil examples) just skip this box rather than showing a
+  // bogus "difference €NaN" comparison.
+  if (!preset || total === null || preset.expectedTotal == null) { el.style.display = 'none'; return; }
   const diff = Math.abs(total - preset.expectedTotal);
   const withinTolerance = diff <= 0.10;
   el.style.display = '';
@@ -1597,7 +1600,10 @@ function renderAll() {
 // --- Presets ---
 function loadPreset(key) {
   const preset = PRESET_EXAMPLES[key];
-  product = { parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [], chemicals: [], meta: defaultProjectMeta() };
+  product = {
+    parts: [], assembly: null, transportLegs: [], customLines: [], tradeLines: [], chemicals: [],
+    meta: { ...defaultProjectMeta(), ...(preset.meta || {}) },
+  };
   for (const p of preset.parts) {
     product.parts.push({
       id: nextLineId++, name: p.name, materialId: p.materialId, weight: p.weight,

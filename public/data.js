@@ -103,6 +103,34 @@ const MATERIALS = [
   { id: 'activated-carbon-electrode', category: 'Battery & capacitor materials', name: 'Activated carbon (electrode, battery/supercapacitor)', ecoCost: 2.35, co2e: 6.5, water: 80, energyIn: 50, recycledPct: 0 },
   { id: 'battery-separator', category: 'Battery & capacitor materials', name: 'Battery separator (PP/PE microporous membrane)', ecoCost: 1.45, co2e: 4.0, water: 40, energyIn: 30, recycledPct: 0 },
   { id: 'battery-electrolyte', category: 'Battery & capacitor materials', name: 'Battery electrolyte (liquid, LiPF6-based)', ecoCost: 2.15, co2e: 6.0, water: 80, energyIn: 35, recycledPct: 0 },
+
+  // Wood & timber -- added for engineered-wood-product (e.g. CLT) scenarios; NOT from
+  // Idematapp like the rest of this file. co2e for the lumber is derived from published
+  // CLT EPD/literature cradle-to-gate figures (~150-250 kg CO2e per m3 of panel, fossil/
+  // processing only, excluding biogenic carbon storage -- see e.g. Bilek & Sydor
+  // "Environmental performance of a cross laminated timber (CLT)" and CLT EPD averages
+  // reviewed in Skullestad et al., "Environmental Product Declarations of Structural
+  // Wood") divided by a typical softwood CLT density of ~470 kg/m3. The two adhesives
+  // are order-of-magnitude literature figures, not product-specific EPD data, chosen
+  // within the plausible range for each chemistry and then calibrated against the
+  // relationships given directly in the CLT case scenarios themselves (resin at 1-3% of
+  // panel mass contributing 5-15% of cradle-to-gate GWP; a bio-adhesive swap at fixed
+  // process conditions producing a single-digit-percent total reduction): PUR
+  // (isocyanate-based) sits toward the lower end of general polyurethane eco-profile
+  // figures (PlasticsEurope-style rigid-PU eco-profiles commonly cite ~4-5 kg CO2e/kg;
+  // adhesive-grade formulations are mostly prepolymer plus fillers, plausibly lower); the
+  // bio-adhesive is set meaningfully below it, consistent with the general direction (not
+  // magnitude) of comparative cradle-to-gate LCAs of lignin/tannin wood adhesives (e.g.
+  // Arias et al. 2020/2022, Journal of Industrial Ecology) without adopting any one
+  // paper's specific number. ecoCost for all three (no Idematapp source exists for wood)
+  // is derived the same way the regional ENERGY grids above it are: scaled proportionally
+  // from co2e at ~0.36 EUR per kg CO2e. Treat all figures here as illustrative/order-of-
+  // magnitude, not certified -- same status already disclosed for co2e/water/energy
+  // project-wide (see the footer), just explicitly called out here since it's the whole
+  // point of the three "CLT method case" examples that use them.
+  { id: 'softwood-lumber-clt', category: 'Wood & timber', name: 'Softwood lumber (CLT lamella, kiln-dried)', ecoCost: 0.14, co2e: 0.38, water: 50, energyIn: 2.0, recycledPct: 0 },
+  { id: 'pur-adhesive-wood', category: 'Wood & timber', name: 'Adhesive: one-component PUR (isocyanate-based)', ecoCost: 0.83, co2e: 2.3, water: 40, energyIn: 20, recycledPct: 0 },
+  { id: 'bio-adhesive-lignin-tannin', category: 'Wood & timber', name: 'Bio-adhesive (lignin-phenolic / tannin-hexamine)', ecoCost: 0.29, co2e: 0.8, water: 25, energyIn: 9, recycledPct: 0 },
 ];
 
 // Processing eco-costs, euro per kg of material processed (pages 34-35).
@@ -168,6 +196,17 @@ const END_OF_LIFE = [
   { id: 'incin-pe', name: 'Incineration: PE / Polyethylene', ecoCost: 0.11, co2e: 2.9, water: 0.02, energyIn: 0.05 },
   { id: 'recycle-al-closed', name: 'Recycling, closed loop: Aluminium (credit)', ecoCost: -1.49, co2e: -8.5, water: -900, energyIn: -35 },
   { id: 'recycle-cu-closed', name: 'Recycling, closed loop: Copper (credit)', ecoCost: -4.76, co2e: -2.8, water: -140, energyIn: -15 },
+
+  // Wood end-of-life, added alongside the Wood & timber materials above -- illustrative,
+  // not certified (see the note on those materials). Modest credit for energy recovery
+  // (conventional, irreversible PUR/MUF-style bond lines -- the only realistic route);
+  // a bigger credit for cascading (a hydrolyzable/reversible bio-adhesive bond line lets
+  // the panel be delaminated and the lamellas reused in a secondary product instead of
+  // burned, avoiding virgin material elsewhere on top of the energy-recovery benefit --
+  // same "recycling credit bigger than incineration credit" relationship already used
+  // for aluminium/copper above).
+  { id: 'incin-wood-energy-recovery', name: 'Incineration with energy recovery: wood (credit)', ecoCost: -0.11, co2e: -0.3, water: -0.01, energyIn: -0.05 },
+  { id: 'wood-cascade-recycle', name: 'Cascading / delamination reuse: wood (credit)', ecoCost: -0.32, co2e: -0.9, water: -0.03, energyIn: -0.15 },
 ];
 
 // Chemical toxicity eco-costs, for the "Chemicals used" section of the product builder.
@@ -190,34 +229,63 @@ const CHEMICALS = [
   { id: 'benzoapyrene', casNumber: '50-32-8', name: 'Benzo(a)pyrene', category: 'PAHs', ecoCost: 3754, note: 'Human toxicity, cancer, lead substance (PAH-equivalent basis)' },
 ];
 
-// Two fully worked examples, used both as quick-start presets and as an automated
-// correctness check: their known totals are 22.54 (pen) and 7.90 / 2.80 / 1.95
-// (pencil body base case / case 1 / case 2). These reference totals are eco-cost
-// only — the carbon/water/energy/recycled figures are not separately validated.
+// The three pencil-body examples are quick-start presets AND an automated correctness
+// check: their known totals are 7.90 / 2.80 / 1.95 (base case / case 1 / case 2). These
+// reference totals are eco-cost only — the carbon/water/energy/recycled figures are not
+// separately validated. The three CLT examples above them are a different kind of
+// preset entirely — illustrative methodology examples with no independently-published
+// total to check against (see the note above cltCase1).
 const PRESET_EXAMPLES = {
-  // NOTE on fidelity: the source's road/rail transport sub-totals (0.29 and 0.06) sit next
-  // to quantities (0.33 and 0.4) that do NOT reduce to those totals under the tonne-km
-  // formula this calculator uses elsewhere (0.33 tkm x the listed 0.031 EUR/tkm rate is
-  // ~0.01, not 0.29 - off by ~30x, and the source's own database-line reference for that
-  // row, "C.010.06.104", doesn't match any line in its own listed table). Rather than invent
-  // a conversion that fits, the two transport lines below are entered as fixed custom
-  // eco-costs taken directly from the source's printed total - see the 'custom' line type.
-  feltTipPen: {
-    name: 'Felt-tip pen (materials only) — per 1000 pens',
-    expectedTotal: 22.54,
+  // Three CLT (cross-laminated timber) adhesive scenarios, per kg of finished panel
+  // (functional unit chosen to line up directly with the given adhesive spread-rate/
+  // mass-fraction figures). None of these have an expectedTotal: unlike the pencil
+  // examples below, they're not reproductions of an independently-published reference
+  // total, so there's nothing to check the computed total against -- see
+  // renderPresetCheck(), which skips the check box entirely when expectedTotal is
+  // missing. All three share the same bio-adhesive (lignin-phenolic/tannin-hexamine) at
+  // an elevated ~3.1% mass fraction -- reflecting the ~250-300 g/m2 spread rate a
+  // bio-adhesive needs for equivalent bond-line performance vs. ~180 g/m2 for the PUR
+  // baseline (i.e. the case 1 "ceiling" is already priced into every case here, not just
+  // case 1) -- and differ only in process energy and end-of-life, matching what each
+  // scenario says actually changes.
+  cltCase1: {
+    name: 'CLT method case 1',
+    meta: {
+      boundary: 'cradle-to-gate',
+      goal: `Scenario 1: drop-in substitution at fixed process conditions. Swap the baseline one-component PUR adhesive for a lignin-phenolic/tannin-hexamine bio-adhesive at the same ambient cold-press schedule (0.6-1.0 MPa, 2-4 h clamp) -- only the adhesive term in A1 (materials) moves. Resin is a few percent of panel mass but typically 5-15% of cradle-to-gate GWP, so the result is a real but BOUNDED reduction (single-digit percent of total panel GWP) -- this shows the ceiling on what adhesive chemistry alone can do. The adhesive mass here is already set to the ~3.1% a bio-adhesive needs at 250-300 g/m2 spread rate (vs. 180 g/m2 for PUR) to match bond-line performance, since that's the variable most worth sweeping: a bio-adhesive needing an even higher spread rate can erase its own per-kg advantage entirely. Compare against the same build with pur-adhesive-wood at ~2% mass to see the baseline.`,
+      impactVariables: ['ghg-emissions'],
+    },
     parts: [
-      { name: 'Cap', materialId: 'pe-hdpe', weight: 2 },
-      { name: 'Support for felt', materialId: 'pe-hdpe', weight: 2 },
-      { name: 'Felt', materialId: 'pa66', weight: 1 },
-      { name: 'Ink cartridge', materialId: 'polyester', weight: 4 },
-      { name: 'Body', materialId: 'al-trademix', weight: 4 },
-      { name: 'Ink', materialId: 'ethanol-bio', weight: 15 },
+      { name: 'Wood lamellas', materialId: 'softwood-lumber-clt', weight: 0.969, endOfLifeId: 'incin-wood-energy-recovery' },
+      { name: 'Adhesive (bio, elevated spread rate)', materialId: 'bio-adhesive-lignin-tannin', weight: 0.031, endOfLifeId: 'incin-wood-energy-recovery' },
     ],
-    assembly: { energyId: 'elec-industrial-west', mjPerKg: 1 },
-    customLines: [
-      { name: 'Transport, road', ecoCost: 0.29 },
-      { name: 'Transport, rail', ecoCost: 0.06 },
+    assembly: { energyId: 'elec-industrial-west', mjPerKg: 0.05 },
+  },
+  cltCase2: {
+    name: 'CLT method case 2',
+    meta: {
+      boundary: 'cradle-to-gate',
+      goal: `Scenario 2: the same adhesive swap, but with the hot-press conditions (120-150C, 30-60 min) the bio-adhesive actually needs instead of the baseline's ambient cold press -- now A3 process energy competes directly against the A1 adhesive saving, and the deciding variable is the electricity grid. Shipped here on "Electricity, grid mix (India, coal-heavy)" (~750 g CO2e/kWh) specifically because it LOSES the gain -- for this build the break-even grid intensity (relative to the conventional PUR baseline, cold-pressed) is roughly 130 g CO2e/kWh (right around the "Canada, hydro-heavy" entry in the assembly-energy dropdown): anything cleaner than that keeps a net reduction, anything dirtier reverses it into a net increase. Switch the assembly energy source and re-check the Eco-cost/Carbon totals, or sweep it properly on the Sensitivity Analysis tab (vary "Assembly energy" or just compare Present-vs-absent) to find your own break-even point -- that break-even value is the most defensible number this whole exercise produces.`,
+      impactVariables: ['ghg-emissions', 'energy-consumption'],
+    },
+    parts: [
+      { name: 'Wood lamellas', materialId: 'softwood-lumber-clt', weight: 0.969, endOfLifeId: 'incin-wood-energy-recovery' },
+      { name: 'Adhesive (bio, elevated spread rate)', materialId: 'bio-adhesive-lignin-tannin', weight: 0.031, endOfLifeId: 'incin-wood-energy-recovery' },
     ],
+    assembly: { energyId: 'elec-india', mjPerKg: 0.8 },
+  },
+  cltCase3: {
+    name: 'CLT method case 3',
+    meta: {
+      boundary: 'cradle-to-cradle',
+      goal: `Scenario 3: the adhesive doesn't change the manufacturing burden much here (same bio-adhesive, same ambient cold press as case 1) -- it changes what modules C and D are allowed to look like. Conventional PUR/MUF bond lines are effectively irreversible, so the realistic route is incineration with energy recovery and the stored biogenic carbon is released. A hydrolyzable/thermally-reversible bio-adhesive (protein-based, citric acid/sucrose, some lignin systems) instead opens delamination and cascading into secondary panel products -- a substitution credit in D, modelled here as "Cascading / delamination reuse: wood" on both parts instead of incineration. The catch to model honestly, not footnote: reversibility and durability are in tension. If the panel only qualifies for a shorter service class or fails delamination testing, its reference service life drops, and normalizing per m3-year of service can eliminate this entire end-of-life benefit -- build that as a Sensitivity Analysis check (Present vs absent on this end-of-life credit), not an assumption.`,
+      impactVariables: ['ghg-emissions', 'waste-management', 'natural-resources'],
+    },
+    parts: [
+      { name: 'Wood lamellas', materialId: 'softwood-lumber-clt', weight: 0.969, endOfLifeId: 'wood-cascade-recycle' },
+      { name: 'Adhesive (bio, reversible bond line)', materialId: 'bio-adhesive-lignin-tannin', weight: 0.031, endOfLifeId: 'wood-cascade-recycle' },
+    ],
+    assembly: { energyId: 'elec-industrial-west', mjPerKg: 0.05 },
   },
   pencilBodyBase: {
     name: 'Pencil body — base case (Aluminium, landfill)',
