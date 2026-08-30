@@ -1835,8 +1835,22 @@ function getCheckedValues(containerId) {
 
 function updateDbDataTypeSummary() {
   const checked = getCheckedValues('db-datatype-checkboxes');
-  document.getElementById('db-datatype-summary').textContent = checked.length ? `(${checked.length} selected)` : '(none selected)';
+  document.getElementById('db-datatype-summary').textContent = checked.length ? `${checked.length} selected` : 'none selected';
 }
+
+function toggleDbDataTypeMenu(event) {
+  event.stopPropagation();
+  const panel = document.getElementById('db-datatype-panel');
+  panel.style.display = panel.style.display === 'none' ? '' : 'none';
+}
+
+// Close on outside click, same pattern as the account-menu dropdown.
+document.addEventListener('click', (e) => {
+  const wrap = document.getElementById('db-datatype-wrap');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('db-datatype-panel').style.display = 'none';
+  }
+});
 
 function handleDatabaseFileSelect(event) {
   const file = event.target.files[0];

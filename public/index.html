@@ -331,18 +331,20 @@
         <button type="button" class="btn-primary" onclick="uploadDatabaseFile()">Clean &amp; add to my database →</button>
       </form>
 
-      <details class="builder-section" id="db-datatype-details">
-        <summary>Data type <span class="hint-inline" id="db-datatype-summary">(none selected)</span></summary>
-        <p class="hint-inline">Check all that apply to this file — a per-row "Data type" column, if present, overrides this.</p>
-        <div class="checkbox-group" id="db-datatype-checkboxes">
-          <label><input type="checkbox" value="energy-consumption" onchange="updateDbDataTypeSummary()"> Energy consumption</label>
-          <label><input type="checkbox" value="cost" onchange="updateDbDataTypeSummary()"> Cost</label>
-          <label><input type="checkbox" value="ghg-emissions" onchange="updateDbDataTypeSummary()"> Greenhouse gas emissions</label>
-          <label><input type="checkbox" value="water-pollution" onchange="updateDbDataTypeSummary()"> Water pollution</label>
-          <label><input type="checkbox" value="waste-management" onchange="updateDbDataTypeSummary()"> Waste management</label>
-          <label><input type="checkbox" value="natural-resources" onchange="updateDbDataTypeSummary()"> Natural resources</label>
+      <div class="dropdown-wrap" id="db-datatype-wrap">
+        <button type="button" class="btn-ghost" onclick="toggleDbDataTypeMenu(event)">Data type: <span id="db-datatype-summary">none selected</span> ▾</button>
+        <div class="dropdown-panel" id="db-datatype-panel" style="display:none;">
+          <p class="hint-inline" style="margin-top:0;">Check all that apply to this file — a per-row "Data type" column, if present, overrides this.</p>
+          <div class="checkbox-group" id="db-datatype-checkboxes">
+            <label><input type="checkbox" value="energy-consumption" onchange="updateDbDataTypeSummary()"> Energy consumption</label>
+            <label><input type="checkbox" value="cost" onchange="updateDbDataTypeSummary()"> Cost</label>
+            <label><input type="checkbox" value="ghg-emissions" onchange="updateDbDataTypeSummary()"> Greenhouse gas emissions</label>
+            <label><input type="checkbox" value="water-pollution" onchange="updateDbDataTypeSummary()"> Water pollution</label>
+            <label><input type="checkbox" value="waste-management" onchange="updateDbDataTypeSummary()"> Waste management</label>
+            <label><input type="checkbox" value="natural-resources" onchange="updateDbDataTypeSummary()"> Natural resources</label>
+          </div>
         </div>
-      </details>
+      </div>
 
       <div id="db-upload-status" class="hint"></div>
       <p class="hint-inline">Columns are matched flexibly (e.g. "Cost ($/lb)" or "Eco-cost (EUR/kg)" both work) — expected fields: name/material, category, eco-cost, CO2e, water, energy, recycled %, data type. Add a "unit" or "data type" column per row to override the file-wide settings above for mixed files.</p>

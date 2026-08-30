@@ -367,6 +367,23 @@ main {
 .checkbox-group label { display: flex; align-items: center; gap: 8px; font-size: 13.5px; cursor: pointer; }
 .checkbox-group input[type="checkbox"] { width: 15px; height: 15px; accent-color: var(--green); cursor: pointer; }
 
+/* A real popup dropdown (opens over the page, doesn't push content down) -- same
+   overlay pattern as .account-menu, generalized for reuse anywhere a multi-select
+   needs to collapse to a single-line control until clicked. */
+.dropdown-wrap { position: relative; display: inline-block; }
+.dropdown-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 260px;
+  background: var(--card-bg);
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(11, 11, 11, 0.18);
+  padding: 14px 16px;
+  text-align: left;
+}
+
 .impact-toggle-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .impact-toggle-btn {
   background: var(--page-bg);
